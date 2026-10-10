@@ -402,6 +402,12 @@ export function nextDispatchable(ledger: ExecutionLedger): LedgerItem[] {
   return rows.filter((item) => item.status === "open" && item.dependsOn.every((id) => done.has(id)));
 }
 
+/** Rows that can still progress without the user: in progress, or open with every prerequisite done. */
+export function movableRows(ledger: ExecutionLedger): LedgerItem[] {
+  const next = new Set(nextDispatchable(ledger).map((item) => item.id));
+  return ledgerRows(ledger).filter((item) => item.status === "in_progress" || next.has(item.id));
+}
+
 export function verificationStatus(row: LedgerItem): VerificationStatus | undefined {
   if (row.tier !== "heavy") return undefined;
   const verification = row.verification;

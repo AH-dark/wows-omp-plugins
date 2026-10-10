@@ -22,7 +22,8 @@ Prometheus 计划的两个批准选项都会交给 Atlas。“Approve and execut
 
 | 工具 | 在 Atlas 父会话中允许 |
 | --- | --- |
-| `task`、`wait`、`todo`、`ask`、`think`、`web_search`、`atlas_ledger`、`atlas_release` | 始终 |
+| `task`、`wait`、`todo`、`think`、`web_search`、`atlas_ledger`、`atlas_release` | 始终 |
+| `ask` | 仅当没有进行中或可派发的行时（见下文的 ask 守卫） |
 | `atlas_git` | 始终：`status`、`diff`、`log`、`show`，以及按文件名 `commit`（见下文） |
 | `read`、`find`、`glob`、`grep`、`ast_grep` | 始终；`read` 拒绝 `ssh://` |
 | `lsp` | 只读操作，以及不带 `apply` 的 `code_actions` |
@@ -119,7 +120,7 @@ Atlas 通过 `atlas_ledger` 驱动执行记录：
 
 子代理的输出会被复制到 `evidence/` 并按摘要重新校验，因此删除原会话后，已验证的进度仍然保留。只保存子代理自己的输出（不含它链接的文件），未通过的验证者输出也不归档。某行的证明丢失或被改动时，该行会重新打开，旧的会话分支也无法回滚共享进度。恢复时，HEAVY 行保留已记录的实现，只丢弃尚未完成的验证者绑定。
 
-继续执行的消息是一条隐藏的 `<atlas-continuation>`，其中包含执行记录摘要；你每发一条消息最多发送八次，连续两次没有进展时，循环停止并通知你。
+继续执行的消息是一条隐藏的 `<atlas-continuation>`，其中包含执行记录摘要；你每发一条消息最多发送八次，连续两次没有进展时，循环停止并通知你。当所有未完成的行都已阻塞或在等待阻塞的行、没有你就无法推进时，继续执行消息会列出每个阻塞行及其记录的原因，并要求 Atlas 用 `ask` 询问你，让会话等待你的回答，而不是只在聊天中留下问题就结束。
 
 旧版本写入的执行记录会在加载时升级，并保留已验证的进度：版本 6 之前的范围外发现按记录顺序获得 `O1`、`O2`……编号，且尚未分诊；版本 5 之前各行均为 LIGHT，发现行和范围外发现为空，交付方式取自计划中的 `Delivery:` 行，没有则为 `direct`；版本 1 的检查点升级到版本 2；版本 4 之前没有记录 Git 基线，所以 F1 以最早记录的行开始时间推定。版本 1 和 2 的批准文件原样加载、从不改写，因为检查点绑定了它们的原始字节。把执行记录存放在会话内的旧版本计划不会迁移，需要重新批准。`prometheus_ledger` 和 `prometheus_release` 已改名为 `atlas_ledger` 和 `atlas_release`，不保留别名。
 
@@ -137,6 +138,7 @@ F1 读取经哈希校验的 `plan.md`（插件在 F1 开始时打印其路径）
 
 - 待办镜像：Atlas 根据校验过的执行记录，按行的顺序维护会话的待办阶段：`Atlas tasks`、存在时的 `Atlas discovered` 和 `Atlas fixes`、`Atlas final gates`，以及计划需要交付时的 `Atlas delivery`。其他阶段保持不变；请不要手动编辑 Atlas 阶段。
 - 进度守卫：宿主只在模型调用 `todo` 时重绘待办 HUD，所以每个改动了行的 `atlas_ledger` 结果都以需要执行的 `todo` 调用开头，随后给出精简的执行记录（只列出改动行的验收和证据；`status` 显示所有行）。`todo` 可用时，在一次非 view 的 `todo` 调用成功之前，`task`、`wait` 和 `atlas_release` 都会被拒绝；一次调用覆盖之前的所有执行记录改动。另外，某行当前尝试的子代理已有最终结果而该行仍为 `in_progress` 时，`wait` 和不带该行 `atlas_assignment` 绑定的 `task` 调用都会被拒绝，直到 Atlas 用 `done`、`block` 或 `reopen` 记录该行，或者用该行当前的绑定派发替代子代理。两者都只保存在内存中：重启后的会话不带这些状态。
+- ask 守卫：`ask` 会让整个会话一直等到你回答，期间不会记录已完成的子代理，也不会派发任何行。只要还有进行中或可派发的行，Atlas 的 `ask` 就会被拒绝，并列出仍可推进的行。工作不需要的问题由 Atlas 写在回复里并继续推进；需要你介入的行用 `block` 记录，等所有未完成的行都已阻塞或在等待阻塞的行时，`ask` 才可用。执行记录不可用时，`ask` 不受限制。
 - 会话标题：Atlas 请 OMP 的标题生成器生成一个以“Atlas”开头的标题，没有结果时命名为 `Atlas: <plan name>`。用 `/rename` 设置的名称永远不会被替换，`PI_NO_TITLE` 会关闭这一功能。
 - 没有 UI 时，裸 `/atlas` 打印计划列表，或打印正在运行的计划及其各行；进入计划失败时，会话保持暂停，直到运行 `/atlas exit`，Atlas 永远不会退化为仅靠提示词的执行。输出以 `wows-omp-omo-prometheus.command-status` 消息送达。在 RPC 中，Atlas 激活时裸 `/atlas` 显示一个摘要，提供 Keep running、View details（只读 `editor` 对话框，显示计划文本）和 Exit；小组件文本行最多每秒发送两次。
 

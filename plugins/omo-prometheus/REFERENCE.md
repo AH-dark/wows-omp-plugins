@@ -22,7 +22,8 @@ The guard admits only tools that observe the session or change host-owned state;
 
 | Tool | Allowed in the Atlas parent |
 | --- | --- |
-| `task`, `wait`, `todo`, `ask`, `think`, `web_search`, `atlas_ledger`, `atlas_release` | always |
+| `task`, `wait`, `todo`, `think`, `web_search`, `atlas_ledger`, `atlas_release` | always |
+| `ask` | only when no row is in progress or dispatchable (see the ask guard below) |
 | `atlas_git` | always: `status`, `diff`, `log`, `show`, and `commit` of named files (see below) |
 | `read`, `find`, `glob`, `grep`, `ast_grep` | always; `read` refuses `ssh://` |
 | `lsp` | read-only actions, and `code_actions` without `apply` |
@@ -119,7 +120,7 @@ A row is done only with proof from the child's real final result; a failed, fore
 
 Child outputs are copied into `evidence/` and rechecked against their digests, so verified progress survives deleting the original session. Only the child's own output is kept (not linked files), and a failing verifier's output is not archived. A row whose proof goes missing or changes reopens, and an old session branch cannot roll shared progress back. On resume, a HEAVY row keeps its recorded implementation and drops only an unfinished verifier binding.
 
-Continuation is a hidden `<atlas-continuation>` message with the ledger summary, sent at most eight times per message from you; two in a row without progress stop the loop and notify you.
+Continuation is a hidden `<atlas-continuation>` message with the ledger summary, sent at most eight times per message from you; two in a row without progress stop the loop and notify you. When nothing can move without you, because every unfinished row is blocked or waits on a blocked row, the continuation lists each blocked row with its recorded reason and tells Atlas to `ask` you, so the session waits for your answer instead of ending with a question in chat.
 
 Ledgers from earlier releases are upgraded on load, keeping verified progress: before version 6 deferred findings get ids `O1`, `O2`, … in recorded order and start untriaged; before version 5 rows are LIGHT, discoveries and deferred findings start empty, and delivery comes from the plan's `Delivery:` line, else `direct`; version 1 checkpoints become version 2; before version 4 there is no recorded Git baseline, so F1 dates one from the earliest row start. Approvals of versions 1 and 2 load unchanged and are never rewritten, because the checkpoint binds their exact bytes. Plans from releases that kept the ledger inside the session are not migrated and need fresh approval. `prometheus_ledger` and `prometheus_release` became `atlas_ledger` and `atlas_release`, with no aliases.
 
@@ -137,6 +138,7 @@ While native child work is running, its session keeps ownership of the plan unti
 
 - Todo mirror: Atlas keeps session todo phases in step with the validated ledger, in row order: `Atlas tasks`, `Atlas discovered` and `Atlas fixes` when present, `Atlas final gates`, and `Atlas delivery` when the plan delivers. Other phases stay in place; don't edit Atlas phases by hand.
 - Progress guard: the host redraws its todo HUD only when the model calls `todo`, so every changed-row `atlas_ledger` result opens with the `todo` call to make and shows a compact ledger (acceptance and evidence for the changed row only; `status` shows every row). While `todo` is active, `task`, `wait` and `atlas_release` are refused until a non-view `todo` call succeeds; one call covers all ledger changes before it. Separately, when a row's child for its current attempt has a final result and the row is still `in_progress`, `wait` and any `task` call that does not carry that row's `atlas_assignment` binding are refused until Atlas records it with `done`, `block` or `reopen`, or dispatches a replacement child with the row's current binding. Both are kept in memory: a restarted session starts without them.
+- Ask guard: `ask` holds the whole session until you answer, so no finished child is recorded and no row dispatched meanwhile. While any row is in progress or dispatchable, Atlas's `ask` is refused with the rows that can still move. Atlas writes questions the work does not need in its reply and keeps going; a row that needs you is recorded with `block`, and `ask` becomes available once every unfinished row is blocked or waits on a blocked row. An unusable ledger never refuses `ask`.
 - Session title: Atlas asks OMP's title generator for a title starting with "Atlas", else uses `Atlas: <plan name>`. A name set with `/rename` is never replaced, and `PI_NO_TITLE` disables this.
 - Without a UI, bare `/atlas` prints the plan list, or the running plan with its rows; if entering a plan fails, the session stays paused until `/atlas exit` and Atlas never falls back to prompt-only execution. Output arrives as `wows-omp-omo-prometheus.command-status` messages. In RPC, bare `/atlas` while Atlas is active shows a summary with Keep running, View details (a read-only `editor` dialog with the plan text) and Exit; widget lines are sent at most twice a second.
 

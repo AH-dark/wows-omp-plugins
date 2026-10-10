@@ -290,6 +290,7 @@ async function scenario(name: string, root: string): Promise<void> {
         },
         { name: "write", sourceInfo: { source: "builtin" } },
         { name: "wait", sourceInfo: { source: "builtin" } },
+        { name: "ask", sourceInfo: { source: "builtin" } },
         ...[...tools.values()].map((tool) => ({
           name: tool.name,
           sourceInfo: { source: "extension", path: fileURLToPath(new URL("../plugins/omo-prometheus/src/index.ts", import.meta.url)) },
@@ -1107,6 +1108,32 @@ async function scenario(name: string, root: string): Promise<void> {
     assert.match((await guarded("wait")) ?? "", /child of T3 has a final result/);
     assert.equal(await guarded("task", bind(third)), undefined, "a replacement child for the finished row may dispatch");
     assert.equal(await guarded("wait"), undefined);
+    return;
+  }
+  if (name === "ask-guard") {
+    const asked = async () => {
+      const result = (await hook("tool_call", { toolName: "ask", toolCallId: `ask-${sequence++}`, input: { questions: [] } })) as
+        | { reason?: string }
+        | undefined;
+      return result?.reason;
+    };
+    const continuation = async () => {
+      const result = (await hook("session_stop")) as { additionalContext?: string } | undefined;
+      return result?.additionalContext ?? "";
+    };
+    assert.match((await asked()) ?? "", /Atlas ask guard: .*T1 \(dispatchable\), T3 \(dispatchable\)/);
+    ok(await call({ action: "start", id: "T3" }));
+    ok(await call({ action: "block", id: "T1", evidence: "Which storage backend should T1 use?" }));
+    assert.match((await asked()) ?? "", /T3 \(in progress\)/, "a running row keeps the session free of ask");
+    assert.match(await continuation(), /Dispatch the next unblocked items/);
+    ok(await call({ action: "block", id: "T3", evidence: "The user must integrate the vendor SDK" }));
+    assert.equal(await asked(), undefined, "once only blocked rows and their dependents remain, ask is allowed");
+    const stalled = await continuation();
+    assert.match(stalled, /Nothing can move without the user/);
+    assert.match(stalled, /T1: Which storage backend should T1 use\?; T3: The user must integrate the vendor SDK/);
+    assert.match(stalled, /Call ask now/);
+    ok(await call({ action: "reopen", id: "T3", evidence: "Integrated by the user in commit abc123" }));
+    assert.match((await asked()) ?? "", /T3 \(dispatchable\)/);
     return;
   }
   if (name === "gate-fix") {
@@ -2103,6 +2130,7 @@ if (process.env[CHILD_ENV]) {
       "ordering",
       "gate-fix",
       "progress-guard",
+      "ask-guard",
       "untrusted-children",
       "final-native-outcome",
       "reopen-running",

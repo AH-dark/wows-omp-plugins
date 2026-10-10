@@ -82,6 +82,8 @@ Atlas tracks the plan in a ledger. A task is done only with proof from its child
 
 Atlas is nudged to continue unfinished work. If the ledger or plan files are missing, damaged or no longer match the approved plan, Atlas pauses until you restore them, or exit with `/atlas exit` and get a changed plan approved.
 
+When a task needs you — a decision the plan leaves open, a step the plan assigns to you, a problem children could not solve — Atlas marks it blocked and keeps running everything that does not depend on it. Questions the work can do without appear in its reply, so an unattended run never stops on them. Atlas asks through the `ask` dialog, which holds the session until you answer, only once nothing else can move; the plugin refuses `ask` earlier. If you fix a blocker yourself, for example in another session, answer that it is resolved and name the commit or files: Atlas reopens the task and has a fresh child verify it against the task's acceptance before marking it done. A fix that changes what the approved plan requires needs a revised plan: `/atlas exit`, then plan the change with `/prometheus`.
+
 Atlas mirrors the plan into your todo list and titles the session "Atlas …" unless you named it. After every ledger change it must refresh the todo list before it dispatches or waits, and it must record each finished child before it moves on; the plugin refuses the next dispatch until it does. It follows the host's `task.isolation` settings, except that with `merge: patch` it switches merges to `branch` while it executes so each child's commits survive, and restores your setting on exit. Children commit their own work; Atlas commits only roadmap and ADR documents and work a finished child left uncommitted, through its guarded `atlas_git` tool.
 
 In a workspace that is not a Git repository, nobody uses or creates Git: plans say `Commit: none`, delivery is `direct`, children are told not to commit or run `git init`, isolation is not required, and F1 checks the plan without Git history. Run `git init` yourself before planning if you want commits.
@@ -97,7 +99,7 @@ Once every task is done, Atlas runs four gates in parallel, each on a fresh chil
 | F3. Real-surface QA | `deep-low` (fallback `task`) | every verification scenario run for real, each pass backed by an artifact |
 | F4. Success-criteria fidelity | `deep-high` (fallback `task`) | the result against each success criterion and ideal-state row; it passes unless one is shown to fail |
 
-Each gate returns a structured `PASS`, `FAIL` or `INCONCLUSIVE`; only `PASS` counts. A failed gate adds correction rows (`X1`, `X2`, …) and reruns only that gate. After two failed reruns, Atlas asks you how to proceed.
+Each gate returns a structured `PASS`, `FAIL` or `INCONCLUSIVE`; only `PASS` counts. A failed gate adds correction rows (`X1`, `X2`, …) and reruns only that gate. After two failed reruns, Atlas blocks the gate and asks you how to proceed.
 
 ### Delivery
 

@@ -49,6 +49,7 @@ import {
   isComplete,
   type LedgerItem,
   ledgerRows,
+  movableRows,
   parsePlanChecklist,
   planDigest,
   recordReceipt,
@@ -2602,6 +2603,18 @@ export default function prometheus(pi: ExtensionAPI): void {
         };
       }
     }
+    // ask holds the whole session until the user answers, so no child is recorded and nothing is dispatched meanwhile.
+    if (!detail && event.toolName === "ask") {
+      const ledger = await readLedger(ctx, record);
+      const movable = ledger ? movableRows(ledger) : [];
+      if (movable.length) {
+        const rows = movable.map((item) => `${item.id} (${item.status === "in_progress" ? "in progress" : "dispatchable"})`).join(", ");
+        return {
+          block: true,
+          reason: `Atlas ask guard: ask blocks this session until the user answers, and the user may be away for hours, so no finished child would be recorded and no row dispatched meanwhile. These rows can still move without the user: ${rows}. Keep them moving. If the question only adds context the work does not need, write it in your reply and continue; the user answers when back. If a row cannot proceed without the user, record atlas_ledger block on it with the question in evidence and keep working; ask becomes available once every unfinished row is blocked or waits on a blocked row.`,
+        };
+      }
+    }
     // Native xdev task dispatch is intercepted again at its inner task boundary.
     if (!detail && event.toolName === "task" && !carriesAtlasAssignment(event.input)) {
       // Unbound read-only research needs no ledger row, yet still requires a valid ledger: a paused plan dispatches nothing.
@@ -2792,9 +2805,13 @@ export default function prometheus(pi: ExtensionAPI): void {
       return undefined;
     }
     record.lastContinuationLedgerStamp = stamp;
+    const blocked = movableRows(ledger).length ? [] : ledgerRows(ledger).filter((item) => item.status === "blocked");
+    const next = blocked.length
+      ? `Nothing can move without the user: every unfinished row is blocked or waits on a blocked row (${blocked.map((item) => `${item.id}: ${item.evidence ?? "no reason recorded"}`).join("; ")}). Call ask now with one question per blocker, so the session waits for the user instead of ending with a chat-only question. Then reopen and dispatch the rows the answers unblock.`
+      : "Dispatch the next unblocked items with task; record progress with atlas_ledger; call atlas_release only when every row is done.";
     return {
       continue: true,
-      additionalContext: `<atlas-continuation>\n${ledgerSummary(ledger)}\nDispatch the next unblocked items with task; record progress with atlas_ledger; call atlas_release only when every row is done.\n</atlas-continuation>`,
+      additionalContext: `<atlas-continuation>\n${ledgerSummary(ledger)}\n${next}\n</atlas-continuation>`,
     };
   });
 
