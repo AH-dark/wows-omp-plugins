@@ -115,6 +115,13 @@ export class TodoSource {
     return [this.#previous, this.#current].filter((run): run is Run => run !== undefined);
   }
 
+  /** The current list's run id, also while Atlas hides every phase of it as a mirror. */
+  get runId(): string | undefined {
+    return this.#generation && this.#phases.some((phase) => phase.tasks.length > 0)
+      ? `todo:${this.#options.sessionId}:${this.#generation}`
+      : undefined;
+  }
+
   observeResult(event: TodoResult): boolean {
     const details = record(event.details);
     if (event.toolName !== "todo" || event.isError || details?.op === "view") return false;

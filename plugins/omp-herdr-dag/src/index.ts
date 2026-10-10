@@ -128,7 +128,10 @@ class DagExtension {
     this.#atlas.subscribe(() => {
       if (this.#restoring) return;
       void this.run(async () => {
-        this.#todo?.setAtlasBound(!!this.#atlas?.state.snapshot);
+        const state = this.#atlas?.state;
+        if (state?.run) this.#plan.claimAtlas(state.run.id);
+        else if (state && !state.bound) this.#plan.atlasReleased();
+        this.#todo?.setAtlasBound(!!state?.snapshot);
         this.#publish();
         await this.#evaluate();
       });
@@ -208,6 +211,9 @@ class DagExtension {
     const runs = this.#snapshot?.runs ?? [];
     const newRun = runs.some((run) => !this.#seenRuns.has(run.id));
     for (const run of runs) this.#seenRuns.add(run.id);
+    // A list hidden as Atlas mirror phases is not a new run when releasing Atlas reveals it.
+    const todoRunId = this.#todo?.runId;
+    if (todoRunId) this.#seenRuns.add(todoRunId);
     if (newRun) await this.#pane.resetDismissal();
     if (this.#stopping) return;
     if (

@@ -8,7 +8,7 @@ Pane management, the viewer, transport subscriptions and snapshot publishing req
 
 Bun discovery tries `bun` first, then the host executable only if its `--version` output looks like a Bun semantic version; the plugin does not assume a compiled OMP executable can run the viewer. Missing Bun produces a warning and skips pane management.
 
-`/dag-pane open` is idempotent, `close` is safe without a pane, and manual opening ignores `displayTiming`. The plugin manages only its recorded pane ID, never panes found by title. A dismissal is saved; a newly observed run ID or `/dag-pane open` clears it. A viewer closed with `q` stays dismissed across session rebinding.
+`/dag-pane open` is idempotent, `close` is safe without a pane, and manual opening ignores `displayTiming`. The plugin manages only its recorded pane ID, never panes found by title. A dismissal is saved; a newly observed run ID or `/dag-pane open` clears it. A todo list hidden as Atlas mirror phases counts as observed, so releasing Atlas does not clear a dismissal when it reveals that list. A viewer closed with `q` stays dismissed across session rebinding.
 
 ## Plan-execution detection
 
@@ -16,7 +16,7 @@ A purple run requires the recorded proposal, the host's matching plan reference 
 
 Queued synthetic developer approval messages go through the same checks as a new turn's approval prompt. Canonical todo writes must be newer than both the live polling baseline and the recorded approval to claim the first plan list, so lists replayed on startup, switching or rewinding cannot. The final agent-turn boundary reconciles canonical todo writes before checking whether the plan list is terminal. Trusted queued handoffs are identified by host timestamp and approval text, accepted only after the current proposal, and consumed once. A context that retains an old approval cannot approve a later proposal for the same path.
 
-While Atlas is bound, an all-mirror todo list cannot claim or consume an armed native plan approval. The Atlas mirror phases reappear as plain blue todos when Atlas releases or integration is disabled; a later new native list can still claim the approval.
+While Atlas is bound, an all-mirror todo list cannot claim or consume an armed native plan approval. The Atlas run claims it instead, and releasing Atlas ends that plan execution. The Atlas mirror phases then reappear as plain blue todos, as they do when integration is disabled. An approval that arrives while Atlas integration is disabled is still claimed by the first new native list.
 
 ## Graph layout
 

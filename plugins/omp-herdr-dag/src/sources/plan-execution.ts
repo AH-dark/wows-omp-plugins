@@ -89,6 +89,18 @@ export class PlanExecutionTracker {
     return this.#planRuns.has(runId) ? "plan" : "todo";
   }
 
+  /** Atlas executes an approval through its own run; the todo list then only mirrors the Atlas ledger. */
+  claimAtlas(runId: string): void {
+    if (this.#state.state !== "executing" || this.#state.runId) return;
+    this.#planRuns.add(runId);
+    this.#set({ ...this.#state, runId, at: this.#now() });
+  }
+
+  /** Releasing Atlas ends the plan execution its run claimed. */
+  atlasReleased(): void {
+    if (this.#state.state === "executing" && this.#state.runId?.startsWith("atlas:")) this.#set({ v: 1, state: "idle", at: this.#now() });
+  }
+
   agentEnd(run: Run | undefined, willContinue = false): boolean {
     if (willContinue || this.#state.state !== "executing" || !this.#state.runId || run?.id !== this.#state.runId) return false;
     if (!run.nodes.length || !run.nodes.every((node) => node.state === "done" || node.state === "abandoned")) return false;

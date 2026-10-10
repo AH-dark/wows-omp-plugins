@@ -581,6 +581,53 @@ async function scenario(name: string, root: string): Promise<void> {
         const count = splits();
         await eventually(() => splits() > count);
       }
+    } else if (name === "atlas-release-dismissal") {
+      const atlas = (planId: string) => ({
+        v: 1,
+        sessionId: manager.getSessionId(),
+        plan: { id: planId, name: "Atlas", planFilePath: "local://approved.md", cwd },
+        status: "running",
+        done: 0,
+        total: 1,
+        rows: [{ id: "T1", title: "Row", kind: "task", agent: "task", status: "in_progress", dependsOn: [], updatedAt: Date.now() }],
+        live: {},
+        timeline: [],
+        at: Date.now(),
+      });
+      const mirror = (status: "in_progress" | "completed") => [{ name: "Atlas tasks", tasks: [{ content: "T1", status }] }];
+      const planState = () => {
+        const entry = manager.getBranch().findLast((entry) => entry.type === "custom" && entry.customType === PLAN_EXECUTION_ENTRY);
+        assert(entry?.type === "custom");
+        const data = entry.data;
+        assert(data && typeof data === "object" && "state" in data);
+        return data.state;
+      };
+      for (const timing of ["plan-execution", "any-todo"] as const) {
+        await configure({ displayTiming: timing });
+        await hook("session_start");
+        await proposal();
+        await hook("before_agent_start", { prompt: handoff });
+        bus.emit("atlas:snapshot", atlas(timing));
+        await todo("init", mirror("in_progress"));
+        await hook("agent_end", { willContinue: true });
+        const opened = splits();
+        assert(paneIds.has(`owned-${opened}`), "Atlas opens the pane");
+        await command("close");
+        await todo("update", mirror("completed"));
+        bus.emit("atlas:released", { v: 1, sessionId: manager.getSessionId(), planId: timing, reason: "exit" });
+        await hook("agent_end");
+        const peer = await connect();
+        assert(
+          (await peer.snapshot()).runs.some((run) => run.source === "todo"),
+          "released mirror list becomes visible",
+        );
+        assert.equal(splits(), opened, `${timing}: released Atlas must not reopen a dismissed pane`);
+        assert.equal(planState(), "idle", "releasing Atlas ends the approved plan execution");
+        await todo();
+        assert.equal(splits(), timing === "any-todo" ? opened + 1 : opened, "a genuinely new list keeps its timing");
+        await command("close");
+        manager = SessionManager.create(cwd, join(root, "sessions"));
+      }
     } else if (name === "manual-dismissal") {
       await hook("session_start");
       bus.emit("task:subagent:lifecycle", { id: "solo", status: "started", agent: "task", index: 0 });
@@ -1042,6 +1089,7 @@ if (process.env[CHILD_ENV]) {
       "canonical-final-turn",
       "stale-approval",
       "atlas",
+      "atlas-release-dismissal",
       "manual-dismissal",
       "switch-replay",
       "dismiss-switch",
