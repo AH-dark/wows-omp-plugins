@@ -2611,7 +2611,7 @@ export default function prometheus(pi: ExtensionAPI): void {
         const rows = movable.map((item) => `${item.id} (${item.status === "in_progress" ? "in progress" : "dispatchable"})`).join(", ");
         return {
           block: true,
-          reason: `Atlas ask guard: ask blocks this session until the user answers, and the user may be away for hours, so no finished child would be recorded and no row dispatched meanwhile. These rows can still move without the user: ${rows}. Keep them moving. If the question only adds context the work does not need, write it in your reply and continue; the user answers when back. If a row cannot proceed without the user, record atlas_ledger block on it with the question in evidence and keep working; ask becomes available once every unfinished row is blocked or waits on a blocked row.`,
+          reason: `Atlas ask guard: ask is held back, not denied. It blocks this session until the user answers, and the user may be away for hours, so while it is open no finished child would be recorded and no row dispatched. These rows can still move without the user: ${rows}. If any plausible answer could change what a row delivers, how its acceptance is met, the approved scope, or an irreversible step, the question is blocking: record atlas_ledger block on that row (stopping its child first if one is running) with the question in evidence, keep the other rows moving, and ask once every unfinished row is blocked or waits on a blocked row; the continuation will then tell you to ask. Never work around a blocker or treat it as optional to get past this guard. Only a question whose every answer leaves the approved work valid goes in your reply, with the assumption you proceed under.`,
         };
       }
     }
