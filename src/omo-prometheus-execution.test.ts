@@ -1119,8 +1119,8 @@ async function scenario(name: string, root: string): Promise<void> {
       JSON.stringify({ settings: { "wows-omp-plugin-omo-prometheus": { progressReports: true } } }),
     );
     await hook("session_start");
-    assert.match(text(await call({ action: "start", id: "T3" })), /Progress report: before dispatching, tell the user what this batch/);
-    assert.match(text(await call({ action: "block", id: "T3", evidence: "Needs the vendor SDK" })), /tell the user how this row went/);
+    assert.match(text(await call({ action: "start", id: "T3" })), /write the dispatch block/);
+    assert.match(text(await call({ action: "block", id: "T3", evidence: "Needs the vendor SDK" })), /write the outcome block for this row/);
     const context = (await hook("context", { messages: [] })) as { messages: { content?: unknown }[] };
     assert.match(JSON.stringify(context.messages), /<progress-reports>/);
     return;

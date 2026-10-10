@@ -173,7 +173,7 @@ omp plugin config set wows-omp-plugin-omo-prometheus reviewLevel standard
 | `reviewRoundLimit` | 不小于 0 的整数 | `5` | 每份计划最多的评审轮数；`0` 或留空（`""`）表示不设限。 |
 | `delivery` | `ask` \| `direct` \| `pr` \| `ship` | `ask` | 完成的工作如何离开仓库，见[交付](#交付)。 |
 | `atlasWidget` | boolean | `true` | Atlas 执行时在编辑器上方显示进度小组件。 |
-| `progressReports` | boolean | `false` | Atlas 在对话里说明每批派发要做什么、每个任务的结果。子代理的任务说明不方便你阅读时有用。 |
+| `progressReports` | boolean | `false` | 每批派发前和每个任务结束后，Atlas 在对话里贴一小段汇报：进度、目标或结果、怎么核实的、遇到的问题和下一步。子代理的任务说明不方便你阅读时有用。 |
 | `herdrDag` | boolean | `true` | 向 `omp-herdr-dag` 查看器发布 Atlas 进度。 |
 
 评审级别：

@@ -173,7 +173,7 @@ omp plugin config set wows-omp-plugin-omo-prometheus reviewLevel standard
 | `reviewRoundLimit` | whole number ≥ 0 | `5` | Most plan-review rounds per plan; `0` or empty (`""`) means unlimited. |
 | `delivery` | `ask` \| `direct` \| `pr` \| `ship` | `ask` | How finished work leaves the repository; see [Delivery](#delivery). |
 | `atlasWidget` | boolean | `true` | Show the progress widget above the editor while Atlas executes. |
-| `progressReports` | boolean | `false` | Atlas says in the chat what each dispatch batch will do and how each task went. Useful when its assignments to children are hard for you to read. |
+| `progressReports` | boolean | `false` | Before each dispatch batch and after each task, Atlas posts a short block in the chat: progress, goal or result, how it was checked, any problem, and the next step. Useful when its assignments to children are hard for you to read. |
 | `herdrDag` | boolean | `true` | Publish Atlas progress for the `omp-herdr-dag` viewer. |
 
 Review levels:

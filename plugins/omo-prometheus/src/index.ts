@@ -130,10 +130,29 @@ const NON_GIT_PLANNING =
   '<workspace git="none">This workspace is not a Git repository, and this workflow never uses or creates one. Plan without Git: write `Delivery: direct`, give every task `Commit: none (workspace is not a Git repository)`, assign no git, commit or `git init` work, and prove each task by its observed behavior rather than a diff. If the user wants Git, they initialize it themselves before planning.</workspace>';
 const NON_GIT_EXECUTION =
   '<workspace git="none">This workspace is not a Git repository, and this workflow never uses or creates one. In every assignment, replace the commit rule with: do not run git, do not commit, and never run `git init`; list changed files in the done-claim instead. Do not call `atlas_git`. Isolation is not required here, and F1 receives no Git evidence.</workspace>';
-const PROGRESS_REPORTS_EXECUTION =
-  "<progress-reports>The user turned on progress reports. Write each report as plain text in your reply, alongside your tool calls. Before each dispatch batch, write one or two sentences on what the batch will do, once for the whole batch. After recording a row with done, block or reopen, write one or two sentences on how it went (passed, failed or blocked), the problem if there was one, and what comes next. Report progress and outcomes, not assignment details. A report never replaces a ledger record, a todo refresh or an ask.</progress-reports>";
-const DISPATCH_REPORT = "Progress report: before dispatching, tell the user what this batch will do (once per batch).";
-const OUTCOME_REPORT = "Progress report: tell the user how this row went and what comes next.";
+const PROGRESS_REPORTS_EXECUTION = `<progress-reports>
+The user turned on progress reports. Write each report as plain text in your reply, alongside your tool calls, as a block with one field per line in this order. Word the labels and the content as you normally address the user. Report progress and outcomes, not assignment details. A report never replaces a ledger record, a todo refresh or an ask.
+
+Before each dispatch batch, once for the whole batch:
+Progress: <rows done>/<total rows>
+Dispatching: <each row id with its short title>
+Goal: <what the batch delivers, one sentence>
+Agents: <agent per row, with HEAVY when the row is HEAVY>
+Running alongside: <rows still in progress, or none>
+
+After recording a row with done, block or reopen:
+Progress: <rows done>/<total rows>
+Row: <row id and short title>
+Status: <passed | implementation recorded, awaiting verification | failed and reopened | blocked>
+Result: <what changed or was found, one or two sentences>
+Evidence: <how it was checked: tests, real-surface runs, verifier verdict>
+Problem: <only when failed or blocked: what went wrong, or what the user must decide or do>
+Next: <the next step>
+</progress-reports>`;
+const DISPATCH_REPORT =
+  "Progress report: before dispatching, write the dispatch block (Progress, Dispatching, Goal, Agents, Running alongside) once for this batch.";
+const OUTCOME_REPORT =
+  "Progress report: write the outcome block for this row (Progress, Row, Status, Result, Evidence, Problem when any, Next).";
 const PROGRESS_REPORT_REMINDERS: Record<string, string> = {
   start: DISPATCH_REPORT,
   verify: DISPATCH_REPORT,
