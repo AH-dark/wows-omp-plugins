@@ -1110,6 +1110,21 @@ async function scenario(name: string, root: string): Promise<void> {
     assert.equal(await guarded("wait"), undefined);
     return;
   }
+  if (name === "progress-reports") {
+    const text = (result: { content: { text?: string }[] }) => result.content.map((part) => part.text ?? "").join("\n");
+    assert.doesNotMatch(text(await call({ action: "start", id: "T1" })), /Progress report/, "reports are off by default");
+    await mkdir(join(root, ".omp"), { recursive: true });
+    await writeFile(
+      join(root, ".omp", "plugin-overrides.json"),
+      JSON.stringify({ settings: { "wows-omp-plugin-omo-prometheus": { progressReports: true } } }),
+    );
+    await hook("session_start");
+    assert.match(text(await call({ action: "start", id: "T3" })), /Progress report: before dispatching, tell the user what this batch/);
+    assert.match(text(await call({ action: "block", id: "T3", evidence: "Needs the vendor SDK" })), /tell the user how this row went/);
+    const context = (await hook("context", { messages: [] })) as { messages: { content?: unknown }[] };
+    assert.match(JSON.stringify(context.messages), /<progress-reports>/);
+    return;
+  }
   if (name === "ask-guard") {
     const asked = async () => {
       const result = (await hook("tool_call", { toolName: "ask", toolCallId: `ask-${sequence++}`, input: { questions: [] } })) as
@@ -2130,6 +2145,7 @@ if (process.env[CHILD_ENV]) {
       "ordering",
       "gate-fix",
       "progress-guard",
+      "progress-reports",
       "ask-guard",
       "untrusted-children",
       "final-native-outcome",

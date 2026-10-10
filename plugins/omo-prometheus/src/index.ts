@@ -130,6 +130,17 @@ const NON_GIT_PLANNING =
   '<workspace git="none">This workspace is not a Git repository, and this workflow never uses or creates one. Plan without Git: write `Delivery: direct`, give every task `Commit: none (workspace is not a Git repository)`, assign no git, commit or `git init` work, and prove each task by its observed behavior rather than a diff. If the user wants Git, they initialize it themselves before planning.</workspace>';
 const NON_GIT_EXECUTION =
   '<workspace git="none">This workspace is not a Git repository, and this workflow never uses or creates one. In every assignment, replace the commit rule with: do not run git, do not commit, and never run `git init`; list changed files in the done-claim instead. Do not call `atlas_git`. Isolation is not required here, and F1 receives no Git evidence.</workspace>';
+const PROGRESS_REPORTS_EXECUTION =
+  "<progress-reports>The user turned on progress reports. Write each report as plain text in your reply, alongside your tool calls. Before each dispatch batch, write one or two sentences on what the batch will do, once for the whole batch. After recording a row with done, block or reopen, write one or two sentences on how it went (passed, failed or blocked), the problem if there was one, and what comes next. Report progress and outcomes, not assignment details. A report never replaces a ledger record, a todo refresh or an ask.</progress-reports>";
+const DISPATCH_REPORT = "Progress report: before dispatching, tell the user what this batch will do (once per batch).";
+const OUTCOME_REPORT = "Progress report: tell the user how this row went and what comes next.";
+const PROGRESS_REPORT_REMINDERS: Record<string, string> = {
+  start: DISPATCH_REPORT,
+  verify: DISPATCH_REPORT,
+  done: OUTCOME_REPORT,
+  block: OUTCOME_REPORT,
+  reopen: OUTCOME_REPORT,
+};
 
 type ReviewLevel = "off" | "ask" | "standard" | "high-accuracy";
 
@@ -220,6 +231,7 @@ export default function prometheus(pi: ExtensionAPI): void {
   const reviewRoundLimits = new Map<string, number>();
   const deliverySettings = new Map<string, DeliverySetting>();
   const atlasWidgets = new Map<string, boolean>();
+  const progressReports = new Map<string, boolean>();
   const childEvidence = new ChildEvidence();
   /** The latest todo refresh call each session still owes after a ledger row changed; cleared by any non-view todo call. */
   const pendingTodoRefreshes = new Map<string, string>();
@@ -262,6 +274,7 @@ export default function prometheus(pi: ExtensionAPI): void {
       settings = await getPluginSettings(PACKAGE_NAME, ctx.cwd);
       herdrDagEnabled = settings.herdrDag !== false;
       atlasWidgets.set(sessionId, settings.atlasWidget !== false);
+      progressReports.set(sessionId, settings.progressReports === true);
     } catch (error) {
       atlasWidgets.set(sessionId, true);
       pi.logger.warn("prometheus settings could not be read; using defaults", { error: errorMessage(error) });
@@ -1610,7 +1623,8 @@ export default function prometheus(pi: ExtensionAPI): void {
       ? `\n\n<execution-ledger path="${record.ledgerPath}">\n${ledgerSummary(ledger)}\n</execution-ledger>`
       : `\n\n<execution-ledger status="paused">${pauseMessage(record)}</execution-ledger>`;
     const workspace = (await isGitWorkTree(ctx.cwd)) ? "" : `\n\n${NON_GIT_EXECUTION}`;
-    const header = `${EXECUTION_PREAMBLE}\n\n<approved-plan-reference path="${planPath}" provenance="native-xd-propose" />${ledgerBlock}${capability}${workspace}`;
+    const reports = progressReports.get(ctx.sessionManager.getSessionId()) ? `\n\n${PROGRESS_REPORTS_EXECUTION}` : "";
+    const header = `${EXECUTION_PREAMBLE}\n\n<approved-plan-reference path="${planPath}" provenance="native-xd-propose" />${ledgerBlock}${capability}${workspace}${reports}`;
     try {
       return `${header}\n\n${loadPromptAsset(ATLAS_ASSET)}`;
     } catch (error) {
@@ -2228,6 +2242,7 @@ export default function prometheus(pi: ExtensionAPI): void {
         if (changedRow) {
           const refresh = atlasTodoRefreshCall(changedRow);
           if (pi.getActiveTools().includes("todo")) pendingTodoRefreshes.set(ctx.sessionManager.getSessionId(), refresh);
+          const report = progressReports.get(ctx.sessionManager.getSessionId()) ? PROGRESS_REPORT_REMINDERS[params.action] : undefined;
           return {
             ...result,
             content: [
@@ -2235,6 +2250,7 @@ export default function prometheus(pi: ExtensionAPI): void {
               ...result.content,
               ...(drift ? [{ type: "text" as const, text: `${drift} Name this in the final report.` }] : []),
               ...(gitEvidence ? [{ type: "text" as const, text: gitEvidence.text }] : []),
+              ...(report ? [{ type: "text" as const, text: report }] : []),
             ],
             details: gitEvidence ? { ...result.details, complianceEvidence: gitEvidence } : result.details,
           };
@@ -2918,6 +2934,7 @@ export default function prometheus(pi: ExtensionAPI): void {
     reviewLevels.delete(sessionId);
     deliverySettings.delete(sessionId);
     atlasWidgets.delete(sessionId);
+    progressReports.delete(sessionId);
     herdrDag.forget(sessionId);
     roadmap.forget(sessionId);
     adr.forget(sessionId);

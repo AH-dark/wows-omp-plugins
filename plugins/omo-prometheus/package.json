@@ -46,6 +46,11 @@
         "default": true,
         "description": "Show live Atlas plan progress above the editor during execution"
       },
+      "progressReports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Have Atlas tell you what each dispatch batch will do and how each task went"
+      },
       "herdrDag": {
         "type": "boolean",
         "default": true,
