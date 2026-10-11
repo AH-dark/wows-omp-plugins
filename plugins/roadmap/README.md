@@ -24,7 +24,7 @@ Requires OMP 18.5.1 or newer, a local Git repository and the `adr` plugin (`omp 
 4. Ask the agent to start a stage. It gets a handoff with the round's goal, constraints and non-goals, the stage's objective, scope, criteria, TODOs and relevant ADRs, what its predecessor stages delivered, and any plans already made for it, and plans the work from there.
 5. When the work is done, the agent closes the stage with evidence for every criterion. Once every stage in the round is closed or dropped, run `/roadmap close-round`.
 
-`/roadmap` opens a status menu at any time.
+`/roadmap` opens the roadmap console at any time.
 
 ## Usage
 
@@ -89,7 +89,7 @@ All commands run in the main session and complete subcommands, stage IDs and rou
 | Command | Behavior |
 | --- | --- |
 | `/init-project` | Check prerequisites and start the initialization interview. |
-| `/roadmap` | Status menu: active and planned rounds, dates, stages, TODO counts and available actions. |
+| `/roadmap` | Console: the active round's stages, all rounds and open TODOs with their details, dates and the actions available now. With `uiMenu` set to `inline`, a status menu instead. |
 | `/roadmap stage <id>` | Show a stage and its handoff without starting it. |
 | `/roadmap check [--fix]` | Check document consistency; `--fix` regenerates generated blocks. |
 | `/roadmap upgrade` | Adopt repository format 2. |
@@ -117,7 +117,23 @@ Subagents can use the tools too, but are never prompted. ADRs are managed with t
 
 ## Settings
 
-The plugin has no settings.
+Package name for `omp plugin config`: `wows-omp-plugin-roadmap`.
+
+```bash
+omp plugin config set wows-omp-plugin-roadmap uiMenu inline
+```
+
+| Setting | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `uiMenu` | `fullscreen` \| `inline` | `fullscreen` | How `/roadmap` and write previews look in the terminal. |
+
+With `fullscreen`, `/roadmap` opens a console that fills the terminal. Tab switches between the active round's stages, all rounds and open TODOs. The right pane shows the selected item: status, target and actual dates, dependencies, linked ADRs, open TODOs and its text. Type to search. Enter posts the selected stage's or round's status to the conversation, or jumps from a TODO to its stage. Shift+X closes a stage, Shift+R closes the round, Shift+N opens or activates the next round, Shift+P plans a round and Shift+C runs the check. Esc closes the console.
+
+A check or a round close finishes inside the console, so it reopens on the same item with a one-line result. Closing a stage, planning a round and opening a round need the agent, so the console closes and you continue in the chat; for a stage close it leaves a note on what to ask for. The round-close questions stay small dialogs.
+
+Write previews list the files on the left and show the selected one on the right; Space switches between rendered and raw text. Shift+W or the Write row writes every file. Esc or Cancel writes nothing.
+
+With `inline`, the console and previews are the select menus of earlier releases. RPC and ACP clients always get those menus. The setting is read on each use, so a change applies the next time without a restart. An unknown value falls back to `fullscreen` with a warning in the log.
 
 ## Working with other plugins
 

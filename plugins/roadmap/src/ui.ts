@@ -2,6 +2,7 @@ import { relative } from "node:path";
 
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
+import { type ConsoleChoice, type ConsoleState, PreviewView, RoadmapConsole } from "#src/console.ts";
 import {
   type Model,
   overdue,
@@ -13,6 +14,7 @@ import {
   type TodoItem,
   today,
 } from "#src/documents.ts";
+import type { UiMenuReader } from "#src/settings.ts";
 import { byId, plannedRoundCounts, roundActual, schedule, stageActual } from "#src/state.ts";
 
 export type OverlapAnswer = "roadmap" | "free" | "unrelated";
@@ -54,8 +56,13 @@ export interface RoadmapUi {
   /** False when no dialog can be answered (`hasUI === false`); callers then take their non-interactive path. */
   readonly interactive: boolean;
   overlap(q: OverlapQuestion): Promise<OverlapAnswer | undefined>;
+  /** Fullscreen with the uiMenu setting in a terminal UI, where Esc declines; the select/editor menu otherwise. */
   previewConfirm(p: { title: string; root: string; files: PreviewFile[] }): Promise<boolean | undefined>;
-  /** `on` (YYYY-MM-DD, default today) decides which unfinished targets are overdue. */
+  /** Whether bare `/roadmap` opens the fullscreen console now: a terminal UI with the uiMenu setting `fullscreen`. */
+  fullscreenMenu(): Promise<boolean>;
+  /** One showing of the fullscreen console; undefined when the user closes it. */
+  statusConsole(m: Model, state: ConsoleState): Promise<ConsoleChoice | undefined>;
+  /** The inline status menu. `on` (YYYY-MM-DD, default today) decides which unfinished targets are overdue. */
   statusMenu(m: Model, on?: string): Promise<StatusMenuChoice | undefined>;
   closeRoundDispositions(todos: TodoItem[]): Promise<RoundTodoDispositionChoice[] | undefined>;
   /** The round's goal assessment and summary for its Outcome. */
@@ -65,7 +72,7 @@ export interface RoadmapUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
 }
 
-export type RoadmapUiContext = Pick<ExtensionContext, "ui" | "hasUI">;
+export type RoadmapUiContext = Pick<ExtensionContext, "ui" | "hasUI" | "mode" | "cwd">;
 export type RoadmapMessenger = Pick<ExtensionAPI, "sendMessage">;
 export const NOTICE_TYPE = "wows-omp-roadmap.notice";
 
@@ -80,6 +87,14 @@ export class HeadlessUi implements RoadmapUi {
   }
 
   async previewConfirm(): Promise<undefined> {
+    return undefined;
+  }
+
+  async fullscreenMenu(): Promise<boolean> {
+    return false;
+  }
+
+  async statusConsole(): Promise<undefined> {
     return undefined;
   }
 
@@ -171,9 +186,18 @@ function plannedRoundLabel(m: Model, round: RoundDoc, on: string): string {
   }${dates ? ` · ${dates}` : ""}`;
 }
 
-export function createTuiUi(ctx: RoadmapUiContext, pi: RoadmapMessenger): RoadmapUi {
+const FULLSCREEN = {
+  overlay: true,
+  overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0, fullscreen: true },
+} as const;
+
+/** `uiMenu` reads the setting on every use; without one the setting's default, fullscreen, applies. */
+export function createTuiUi(ctx: RoadmapUiContext, pi: RoadmapMessenger, uiMenu?: UiMenuReader): RoadmapUi {
   if (!ctx.hasUI) return new HeadlessUi(pi);
   const ui = ctx.ui;
+  // RPC and ACP report hasUI but render no custom components, so they keep the select/editor dialogs.
+  const fullscreen = async (): Promise<boolean> =>
+    ctx.mode === "tui" && typeof ui.custom === "function" && (uiMenu ? await uiMenu(ctx.cwd) : "fullscreen") === "fullscreen";
 
   async function choose<T>(title: string, options: ReadonlyArray<readonly [string, T]>): Promise<T | undefined> {
     const picked = await ui.select(
@@ -189,6 +213,8 @@ export function createTuiUi(ctx: RoadmapUiContext, pi: RoadmapMessenger): Roadma
       choose(`This request overlaps stage ${q.stage.id} "${q.stage.title}" [${q.stage.status}]\nRequest: ${q.intent}`, OVERLAP_OPTIONS),
 
     async previewConfirm(p) {
+      if (await fullscreen())
+        return ui.custom<boolean | undefined>((tui, theme, _keys, done) => new PreviewView(p, theme, tui, done), FULLSCREEN);
       const write = `Write ${plural(p.files.length, "file")}`;
       const cancel = "Cancel";
       const labels = [write, ...p.files.map((file) => `View ${relative(p.root, file.path)}`), cancel];
@@ -203,6 +229,11 @@ export function createTuiUi(ctx: RoadmapUiContext, pi: RoadmapMessenger): Roadma
         if (file) await ui.editor(`${relative(p.root, file.path)} (read-only preview, edits are discarded)`, file.content);
       }
     },
+
+    fullscreenMenu: fullscreen,
+
+    statusConsole: (m, state) =>
+      ui.custom<ConsoleChoice | undefined>((tui, theme, _keys, done) => new RoadmapConsole(m, state, theme, tui, done), FULLSCREEN),
 
     statusMenu(m, on = today()) {
       const round = m.rounds.find((candidate) => candidate.status === "active");

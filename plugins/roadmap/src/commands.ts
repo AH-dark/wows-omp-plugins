@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@o
 
 import type { AdrConnection } from "#src/adr.ts";
 import { check } from "#src/check.ts";
+import type { ConsoleMessage, ConsoleState } from "#src/console.ts";
 import {
   loadAll,
   loadRepo,
@@ -36,7 +37,7 @@ import {
   type ToolReceipt,
   toolResult,
 } from "#src/tools.ts";
-import type { RoundTodoDispositionChoice } from "#src/ui.ts";
+import type { RoadmapUi, RoundTodoDispositionChoice } from "#src/ui.ts";
 
 export interface RoadmapCommands {
   refresh(ctx: ExtensionContext): Promise<void>;
@@ -112,6 +113,40 @@ export function parseRoundCloseArguments(words: readonly string[]): Pick<RoundCl
     dispositions.push(reference ? { id: match[1], disposition, reference } : { id: match[1], disposition });
   }
   return outcome ? { dispositions, outcome } : { dispositions };
+}
+
+/** The active round as a menu or console showed it; closing it later is refused once the round or its files changed. */
+interface ReviewedRound {
+  id: string;
+  sha256: string;
+}
+
+function reviewedRound(model: Model): ReviewedRound | undefined {
+  const round = model.rounds.find((candidate) => candidate.status === "active");
+  return round && { id: round.id, sha256: roundSha256(roundFiles(model, round)) };
+}
+
+/** One /roadmap action: typed words, or the inline menu's or the console's choice. */
+interface ActionRequest {
+  action: string;
+  words: readonly string[];
+  /** The stage or round the action names: the second typed word or the menu selection. */
+  selected: string | undefined;
+  reviewedRound?: ReviewedRound;
+  model: Model;
+}
+
+interface ActionResult {
+  /** The model acts next, so the console closes and the conversation continues. */
+  handoff?: true;
+  /** The console's one-line result; typed commands and the inline menu leave results to the conversation. */
+  summary?: ConsoleMessage;
+}
+
+/** The console line for a receipt the command also posted: `done` (or the summary's first line) on success, else the refusal. */
+function resultLine(receipt: ToolReceipt, done?: string): ConsoleMessage {
+  if (!receipt.ok) return { text: receipt.reason.split("\n")[0] ?? "", level: "error" };
+  return { text: done ?? receipt.summary.split("\n")[0] ?? "", level: "info" };
 }
 
 export function registerCommands(
@@ -201,13 +236,227 @@ export function registerCommands(
     show(`wows-omp-roadmap.${kind}`, await applyPreview(ses, ctx, kind, repo, actor(ctx), generation, prepared.prepared));
   }
 
+  /** Runs one /roadmap action; typed words, the inline status menu and the console all resolve to these actions. */
+  async function perform(
+    ctx: ExtensionCommandContext,
+    ui: RoadmapUi,
+    repo: Repo,
+    request: ActionRequest,
+    notice: RoadmapUi["notify"],
+  ): Promise<ActionResult> {
+    const { action, words, reviewedRound } = request;
+    const selectedStage = request.selected;
+    let model = request.model;
+    if (action === "close") {
+      if (!selectedStage) return {};
+      notice(
+        `To close ${selectedStage}, call roadmap_stage with action: "close", id: "${selectedStage}", delivered, passing evidence for every done criterion, and TODO dispositions, after the main agent accepts or rejects the stage's proposed ADRs with adr_manage. This menu does not close the stage.`,
+        "info",
+      );
+      return { handoff: true };
+    }
+    if (action === "round") {
+      const receipt = await statusReceipt(repo, selectedStage);
+      show("wows-omp-roadmap.status", receipt);
+      return { summary: resultLine(receipt, `${selectedStage ?? "Roadmap"} status posted to the conversation`) };
+    }
+    if (action === "upgrade") {
+      if (words.length > 1) throw new Error("Usage: /roadmap upgrade");
+      await commandPreview(ctx, repo, "upgrade", () => prepareUpgrade(repo, actor(ctx)));
+    } else if (action === "drop-round") {
+      if (!words[1] || words.length < 3) throw new Error("Usage: /roadmap drop-round <id> <reason>");
+      await commandPreview(ctx, repo, "drop-round", () =>
+        prepareRoundDrop(repo, actor(ctx), { id: words[1] as string, reason: words.slice(2).join(" ") }),
+      );
+    } else if (action === "retarget") {
+      if (!words[1] || !words[2] || words.length !== 3) throw new Error("Usage: /roadmap retarget <round-or-stage> <YYYY-MM-DD|none>");
+      await commandPreview(ctx, repo, "retarget", () =>
+        prepareRetarget(repo, actor(ctx), { id: words[1] as string, target: words[2] as string }),
+      );
+    } else if (action === "plan-round") {
+      if (words.length > 2) throw new Error("Usage: /roadmap plan-round [<id>]");
+      model = await loadAll(repo);
+      if (selectedStage && !model.rounds.some((round) => round.id === selectedStage && round.status === "planned"))
+        throw new Error(`Only a planned round's charter can be revised: ${selectedStage}.`);
+      const errors = (await check(model)).filter((diagnostic) => diagnostic.severity === "error");
+      if (errors.length) throw new Error(`Roadmap check failed: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`);
+      ses.arm(ctx, repo.repoRoot, "plan");
+      pi.sendUserMessage(
+        `Use the roadmap skill to interview me ${selectedStage ? `to revise planned round ${selectedStage}` : "for a future planned round"}: title, goal, constraints, non-goals, principles citing existing ADRs (adr_status lists them; record new decisions with adr_manage first) and an optional target date. Then call roadmap_round_plan with ${selectedStage ? `id=${selectedStage}, ` : ""}round and optional target; show the exact preview and wait for my confirmation. If this is the first format-2 feature, the same preview warns that roadmap plugin 0.2.3 and earlier cannot read the upgraded repository.`,
+      );
+      return { handoff: true };
+    } else if (action === "stage") {
+      if (!selectedStage || words.length > 2) throw new Error("Usage: /roadmap stage <id>");
+      const receipt = await statusReceipt(repo, selectedStage, planLookup(pi.events, ctx, repo.repoRoot));
+      show("wows-omp-roadmap.status", receipt);
+      return { summary: resultLine(receipt, `${selectedStage} status posted to the conversation`) };
+    } else if (action === "check") {
+      if (words.length > 2 || (words[1] && words[1] !== "--fix")) throw new Error("Usage: /roadmap check [--fix]");
+      const receipt = await checkReceipt(repo, words[1] === "--fix");
+      show("wows-omp-roadmap.check", receipt);
+      const errors = receipt.diagnostics?.filter((diagnostic) => diagnostic.severity === "error").length ?? 0;
+      const warnings = receipt.diagnostics?.filter((diagnostic) => diagnostic.severity === "warning").length ?? 0;
+      return {
+        summary: receipt.ok
+          ? {
+              text: `Check passed${warnings ? ` with ${warnings} warning${warnings === 1 ? "" : "s"}` : ""}; the report is in the conversation`,
+              level: "info",
+            }
+          : { text: `Check found ${errors} error${errors === 1 ? "" : "s"}; the report is in the conversation`, level: "error" },
+      };
+    } else if (action === "overlap") {
+      const [, stageId, answer, ...intent] = words;
+      if (!stageId || (answer !== "roadmap" && answer !== "free" && answer !== "unrelated"))
+        throw new Error("Usage: /roadmap overlap <stage> roadmap|free|unrelated [intent]");
+      const receipt = await resolveOverlap({
+        ses,
+        ctx,
+        repo,
+        owner: actor(ctx),
+        generation: ses.currentGeneration(ctx),
+        stage: stageId,
+        intent: intent.join(" "),
+        plans: planLookup(pi.events, ctx, repo.repoRoot),
+        ask: async () => answer,
+      });
+      show("wows-omp-roadmap.overlap", receipt);
+    } else if (action === "new-round") {
+      if (words.length > 1) throw new Error("Usage: /roadmap new-round");
+      // Re-read after the status menu; its snapshot is only for presentation.
+      model = await loadAll(repo);
+      if (model.rounds.some((round) => round.status === "active")) throw new Error("Close the active round before opening another.");
+      const errors = (await check(model)).filter((diagnostic) => diagnostic.severity === "error");
+      if (errors.length) throw new Error(`Roadmap check failed: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`);
+      ses.arm(ctx, repo.repoRoot, "round");
+      const first = model.rounds
+        .filter((round) => round.status === "planned")
+        .sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))[0];
+      pi.sendUserMessage(
+        first
+          ? `Use the roadmap skill to review the lowest-numbered planned round ${first.id} — ${first.title}. Only this planned round can be activated; revise its charter if agreed. Review trigger-based carried TODOs from frozen rounds and agree which to import as new IDs; same-ID auto-carried TODOs cannot be imported again. Call roadmap_round_open with activate=${first.id}, import_todos and optionally round to revise the charter. Show the preview and wait for my confirmation before writing.`
+          : "Use the roadmap skill to interview me for the next round's charter: title, goal, constraints, non-goals and principles citing existing ADRs (adr_status lists them; record new decisions with adr_manage first). Review carried TODOs in frozen rounds and agree which to import as new TODO ids. Then call roadmap_round_open with round and import_todos; show the preview and wait for my confirmation before writing.",
+      );
+      return { handoff: true };
+    } else if (action === "close-round") {
+      const generation = ses.currentGeneration(ctx);
+      // Typed arguments answer the dialogs; the status menu never supplies arguments.
+      const typed = !reviewedRound && words.length > 1 ? parseRoundCloseArguments(words.slice(1)) : undefined;
+      if (!reviewedRound) model = await loadAll(repo);
+      const round = model.rounds.find((candidate) => candidate.status === "active");
+      if (!round) throw new Error("There is no active round to close.");
+      if (model.stages.some((stage) => stage.round === round.id && stage.status !== "closed" && stage.status !== "dropped")) {
+        throw new Error("Every stage must be closed or dropped before the round can close.");
+      }
+      const errors = (await check(model)).filter((diagnostic) => diagnostic.severity === "error");
+      if (errors.length) throw new Error(`Roadmap check failed: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`);
+      const expected = reviewedRound ?? { id: round.id, sha256: roundSha256(roundFiles(model, round)) };
+      const automatic = autoCarryTodos(model, round);
+      const todos = model.todos
+        .filter((doc) => doc.round === round.id)
+        .flatMap((doc) => doc.items.filter((item) => item.status === "open" && !automatic.includes(item)));
+      let outcome = typed?.outcome;
+      let upgradeFirst = false;
+      if (!outcome && ui.interactive) {
+        // A format-1 round records its outcome only after the one-step upgrade; skipping closes without one.
+        if (model.index.format === 1) {
+          const answer = await ui.upgradePrompt("round-outcome");
+          if (answer === undefined) {
+            notice("Round close: no answer available.", "info");
+            return {};
+          }
+          upgradeFirst = answer;
+        }
+        if (model.index.format === 2 || upgradeFirst) {
+          outcome = await ui.roundOutcome(round);
+          if (!outcome) {
+            notice("Round close: no answer available.", "info");
+            return {};
+          }
+        }
+      }
+      let dispositions = typed?.dispositions.length ? typed.dispositions : undefined;
+      if (!dispositions) {
+        if (ui.interactive) dispositions = await ui.closeRoundDispositions(todos);
+        else if (todos.length) {
+          throw new Error(
+            `Round close needs a disposition for every open TODO: ${todos.map((item) => `${item.id} ${item.title}`).join("; ")}. ${CLOSE_ROUND_USAGE}`,
+          );
+        } else dispositions = [];
+      }
+      if (!dispositions) {
+        notice("Round close: no answer available.", "info");
+        return {};
+      }
+      if (!outcome && model.index.format === 2) throw new Error(`Closing ${round.id} records its goal outcome. ${CLOSE_ROUND_USAGE}`);
+      // The README is outside the reviewed round directory, so upgrading in the same write leaves `expected` valid.
+      const receipt = await closeRound(
+        repo,
+        actor(ctx),
+        { expected, dispositions, ...(outcome ? { outcome } : {}), ...(upgradeFirst ? { upgrade: true } : {}) },
+        upgradeFirst ? { guard: dialogGuard(ses, ctx, generation) } : {},
+      );
+      if (receipt.ok) {
+        for (const stage of model.stages.filter((stage) => stage.round === round.id)) ses.clearStage(ctx, repo.repoRoot, stage.id);
+        ses.disarm(ctx, repo.repoRoot);
+      }
+      show("wows-omp-roadmap.round-close", receipt);
+      return { summary: resultLine(receipt) };
+    } else throw new Error(USAGE);
+    return {};
+  }
+
+  /**
+   * Atlas Dispatch style: an action that completes here reopens the console on the same item with a one-line result;
+   * an action that hands the next step to the model closes it and returns to the conversation. Esc closes it.
+   */
+  async function statusConsole(ctx: ExtensionCommandContext, ui: RoadmapUi, repo: Repo): Promise<void> {
+    let state: ConsoleState = {};
+    for (;;) {
+      // Every showing reads the files again, and the round it shows is the one a close from it may close.
+      const model = await loadAll(repo);
+      rememberStages(model);
+      const reviewed = reviewedRound(model);
+      const choice = await ui.statusConsole(model, state);
+      if (!choice) return;
+      const notices: ConsoleMessage[] = [];
+      let result: ActionResult;
+      try {
+        if (choice.action === "close-round" && !reviewed) throw new Error("There is no reviewed active round to close.");
+        result = await perform(
+          ctx,
+          ui,
+          repo,
+          {
+            action: choice.action,
+            words: [],
+            selected: choice.stage ?? choice.round,
+            ...(reviewed ? { reviewedRound: reviewed } : {}),
+            model,
+          },
+          (text, level) => notices.push({ text, level: level === "error" ? "error" : "info" }),
+        );
+      } catch (error) {
+        result = { summary: { text: error instanceof Error ? error.message : String(error), level: "error" } };
+      }
+      await refresh(ctx);
+      changed(ctx);
+      if (result.handoff) {
+        for (const notice of notices) ui.notify(notice.text, notice.level);
+        return;
+      }
+      const message = notices.at(-1) ?? result.summary;
+      state = { view: choice.view, ...(message ? { message } : {}) };
+    }
+  }
+
   async function roadmapCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const ui = uiFor(ctx);
+    const notify: RoadmapUi["notify"] = (message, level) => ui.notify(message, level);
     try {
       if (ctx.agent.kind !== "main") throw new Error("/roadmap commands require the main session.");
       const api = adr.require(ctx.sessionManager.getSessionId());
       const words = splitArgs(args);
-      let action = words[0];
+      const action = words[0];
       if (action === "confirm") {
         const token = words[1];
         if (!token || words.length > 2) throw new Error("Usage: /roadmap confirm <token>");
@@ -223,163 +472,33 @@ export function registerCommands(
         return;
       }
       const repo = await requireRepo(ctx, api);
-      let model = await loadAll(repo);
+      const model = await loadAll(repo);
       rememberStages(model);
-      let selectedStage = words[1];
-      let reviewedRound: { id: string; sha256: string } | undefined;
-      if (!action) {
+      if (action) await perform(ctx, ui, repo, { action, words, selected: words[1], model }, notify);
+      else {
         if (!ui.interactive) {
           show("wows-omp-roadmap.status", await statusReceipt(repo), USAGE);
           return;
         }
-        const round = model.rounds.find((candidate) => candidate.status === "active");
-        if (round) reviewedRound = { id: round.id, sha256: roundSha256(roundFiles(model, round)) };
+        if (await ui.fullscreenMenu()) {
+          await statusConsole(ctx, ui, repo);
+          return;
+        }
+        const reviewed = reviewedRound(model);
         const choice = await ui.statusMenu(model);
         if (!choice) {
           ui.notify("Roadmap status menu: no answer available.", "info");
           return;
         }
-        action = choice.action;
-        selectedStage = choice.stage ?? choice.round;
-        if (action === "close-round" && !reviewedRound) throw new Error("There is no reviewed active round to close.");
-      }
-      if (action === "close") {
-        if (selectedStage) {
-          ui.notify(
-            `To close ${selectedStage}, call roadmap_stage with action: "close", id: "${selectedStage}", delivered, passing evidence for every done criterion, and TODO dispositions, after the main agent accepts or rejects the stage's proposed ADRs with adr_manage. This menu does not close the stage.`,
-            "info",
-          );
-        }
-        return;
-      }
-      if (action === "round") {
-        show("wows-omp-roadmap.status", await statusReceipt(repo, selectedStage));
-      } else if (action === "upgrade") {
-        if (words.length > 1) throw new Error("Usage: /roadmap upgrade");
-        await commandPreview(ctx, repo, "upgrade", () => prepareUpgrade(repo, actor(ctx)));
-      } else if (action === "drop-round") {
-        if (!words[1] || words.length < 3) throw new Error("Usage: /roadmap drop-round <id> <reason>");
-        await commandPreview(ctx, repo, "drop-round", () =>
-          prepareRoundDrop(repo, actor(ctx), { id: words[1] as string, reason: words.slice(2).join(" ") }),
-        );
-      } else if (action === "retarget") {
-        if (!words[1] || !words[2] || words.length !== 3) throw new Error("Usage: /roadmap retarget <round-or-stage> <YYYY-MM-DD|none>");
-        await commandPreview(ctx, repo, "retarget", () =>
-          prepareRetarget(repo, actor(ctx), { id: words[1] as string, target: words[2] as string }),
-        );
-      } else if (action === "plan-round") {
-        if (words.length > 2) throw new Error("Usage: /roadmap plan-round [<id>]");
-        model = await loadAll(repo);
-        if (selectedStage && !model.rounds.some((round) => round.id === selectedStage && round.status === "planned"))
-          throw new Error(`Only a planned round's charter can be revised: ${selectedStage}.`);
-        const errors = (await check(model)).filter((diagnostic) => diagnostic.severity === "error");
-        if (errors.length) throw new Error(`Roadmap check failed: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`);
-        ses.arm(ctx, repo.repoRoot, "plan");
-        pi.sendUserMessage(
-          `Use the roadmap skill to interview me ${selectedStage ? `to revise planned round ${selectedStage}` : "for a future planned round"}: title, goal, constraints, non-goals, principles citing existing ADRs (adr_status lists them; record new decisions with adr_manage first) and an optional target date. Then call roadmap_round_plan with ${selectedStage ? `id=${selectedStage}, ` : ""}round and optional target; show the exact preview and wait for my confirmation. If this is the first format-2 feature, the same preview warns that roadmap plugin 0.2.3 and earlier cannot read the upgraded repository.`,
-        );
-      } else if (action === "stage") {
-        if (!selectedStage || words.length > 2) throw new Error("Usage: /roadmap stage <id>");
-        show("wows-omp-roadmap.status", await statusReceipt(repo, selectedStage, planLookup(pi.events, ctx, repo.repoRoot)));
-      } else if (action === "check") {
-        if (words.length > 2 || (words[1] && words[1] !== "--fix")) throw new Error("Usage: /roadmap check [--fix]");
-        show("wows-omp-roadmap.check", await checkReceipt(repo, words[1] === "--fix"));
-      } else if (action === "overlap") {
-        const [, stageId, answer, ...intent] = words;
-        if (!stageId || (answer !== "roadmap" && answer !== "free" && answer !== "unrelated"))
-          throw new Error("Usage: /roadmap overlap <stage> roadmap|free|unrelated [intent]");
-        const receipt = await resolveOverlap({
-          ses,
+        if (choice.action === "close-round" && !reviewed) throw new Error("There is no reviewed active round to close.");
+        await perform(
           ctx,
+          ui,
           repo,
-          owner: actor(ctx),
-          generation: ses.currentGeneration(ctx),
-          stage: stageId,
-          intent: intent.join(" "),
-          plans: planLookup(pi.events, ctx, repo.repoRoot),
-          ask: async () => answer,
-        });
-        show("wows-omp-roadmap.overlap", receipt);
-      } else if (action === "new-round") {
-        if (words.length > 1) throw new Error("Usage: /roadmap new-round");
-        // Re-read after the status menu; its snapshot is only for presentation.
-        model = await loadAll(repo);
-        if (model.rounds.some((round) => round.status === "active")) throw new Error("Close the active round before opening another.");
-        const errors = (await check(model)).filter((diagnostic) => diagnostic.severity === "error");
-        if (errors.length) throw new Error(`Roadmap check failed: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`);
-        ses.arm(ctx, repo.repoRoot, "round");
-        const first = model.rounds
-          .filter((round) => round.status === "planned")
-          .sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))[0];
-        pi.sendUserMessage(
-          first
-            ? `Use the roadmap skill to review the lowest-numbered planned round ${first.id} — ${first.title}. Only this planned round can be activated; revise its charter if agreed. Review trigger-based carried TODOs from frozen rounds and agree which to import as new IDs; same-ID auto-carried TODOs cannot be imported again. Call roadmap_round_open with activate=${first.id}, import_todos and optionally round to revise the charter. Show the preview and wait for my confirmation before writing.`
-            : "Use the roadmap skill to interview me for the next round's charter: title, goal, constraints, non-goals and principles citing existing ADRs (adr_status lists them; record new decisions with adr_manage first). Review carried TODOs in frozen rounds and agree which to import as new TODO ids. Then call roadmap_round_open with round and import_todos; show the preview and wait for my confirmation before writing.",
+          { action: choice.action, words, selected: choice.stage ?? choice.round, ...(reviewed ? { reviewedRound: reviewed } : {}), model },
+          notify,
         );
-      } else if (action === "close-round") {
-        const generation = ses.currentGeneration(ctx);
-        // Typed arguments answer the dialogs; the status menu never supplies arguments.
-        const typed = !reviewedRound && words.length > 1 ? parseRoundCloseArguments(words.slice(1)) : undefined;
-        if (!reviewedRound) model = await loadAll(repo);
-        const round = model.rounds.find((candidate) => candidate.status === "active");
-        if (!round) throw new Error("There is no active round to close.");
-        if (model.stages.some((stage) => stage.round === round.id && stage.status !== "closed" && stage.status !== "dropped")) {
-          throw new Error("Every stage must be closed or dropped before the round can close.");
-        }
-        const errors = (await check(model)).filter((diagnostic) => diagnostic.severity === "error");
-        if (errors.length) throw new Error(`Roadmap check failed: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`);
-        const expected = reviewedRound ?? { id: round.id, sha256: roundSha256(roundFiles(model, round)) };
-        const automatic = autoCarryTodos(model, round);
-        const todos = model.todos
-          .filter((doc) => doc.round === round.id)
-          .flatMap((doc) => doc.items.filter((item) => item.status === "open" && !automatic.includes(item)));
-        let outcome = typed?.outcome;
-        let upgradeFirst = false;
-        if (!outcome && ui.interactive) {
-          // A format-1 round records its outcome only after the one-step upgrade; skipping closes without one.
-          if (model.index.format === 1) {
-            const answer = await ui.upgradePrompt("round-outcome");
-            if (answer === undefined) {
-              ui.notify("Round close: no answer available.", "info");
-              return;
-            }
-            upgradeFirst = answer;
-          }
-          if (model.index.format === 2 || upgradeFirst) {
-            outcome = await ui.roundOutcome(round);
-            if (!outcome) {
-              ui.notify("Round close: no answer available.", "info");
-              return;
-            }
-          }
-        }
-        let dispositions = typed?.dispositions.length ? typed.dispositions : undefined;
-        if (!dispositions) {
-          if (ui.interactive) dispositions = await ui.closeRoundDispositions(todos);
-          else if (todos.length) {
-            throw new Error(
-              `Round close needs a disposition for every open TODO: ${todos.map((item) => `${item.id} ${item.title}`).join("; ")}. ${CLOSE_ROUND_USAGE}`,
-            );
-          } else dispositions = [];
-        }
-        if (!dispositions) {
-          ui.notify("Round close: no answer available.", "info");
-          return;
-        }
-        if (!outcome && model.index.format === 2) throw new Error(`Closing ${round.id} records its goal outcome. ${CLOSE_ROUND_USAGE}`);
-        // The README is outside the reviewed round directory, so upgrading in the same write leaves `expected` valid.
-        const receipt = await closeRound(
-          repo,
-          actor(ctx),
-          { expected, dispositions, ...(outcome ? { outcome } : {}), ...(upgradeFirst ? { upgrade: true } : {}) },
-          upgradeFirst ? { guard: dialogGuard(ses, ctx, generation) } : {},
-        );
-        if (receipt.ok) {
-          for (const stage of model.stages.filter((stage) => stage.round === round.id)) ses.clearStage(ctx, repo.repoRoot, stage.id);
-          ses.disarm(ctx, repo.repoRoot);
-        }
-        show("wows-omp-roadmap.round-close", receipt);
-      } else throw new Error(USAGE);
+      }
       await refresh(ctx);
     } catch (error) {
       ui.notify(error instanceof Error ? error.message : String(error), "error");

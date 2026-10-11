@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { AgentSession, AgentToolResult, ExtensionRunner } from "@oh-my-pi/pi-coding-agent";
 
+import type { ConsoleChoice, ConsoleState } from "../plugins/roadmap/src/console.ts";
 import { loadAll, loadRepo, type Model, type Repo, replaceGenerated, roundFiles, roundSha256 } from "../plugins/roadmap/src/documents.ts";
 import { discoverRepo } from "../plugins/roadmap/src/git.ts";
 import { withRepoLock } from "../plugins/roadmap/src/numbering.ts";
@@ -106,6 +107,11 @@ class ScriptedUi implements RoadmapUi {
   /** The scripted answer to the format-2 upgrade question; the default keeps format 1 like a user's No. */
   upgrade: boolean | undefined = false;
   upgradeCalls: UpgradePurpose[] = [];
+  /** Whether bare /roadmap opens the console; false keeps the inline status menu. */
+  fullscreen = false;
+  /** Console answers, one per showing; an exhausted script closes the console like Esc. */
+  consoleChoices: Array<ConsoleChoice | undefined> = [];
+  consoleCalls: Array<{ model: Model; state: ConsoleState }> = [];
 
   async overlap(q: OverlapQuestion) {
     this.overlapCalls.push(q);
@@ -119,6 +125,15 @@ class ScriptedUi implements RoadmapUi {
 
   async statusMenu() {
     return this.menu;
+  }
+
+  async fullscreenMenu() {
+    return this.fullscreen;
+  }
+
+  async statusConsole(model: Model, state: ConsoleState) {
+    this.consoleCalls.push({ model, state });
+    return this.consoleChoices.shift();
   }
 
   async closeRoundDispositions(_todos: Parameters<RoadmapUi["closeRoundDispositions"]>[0]) {
@@ -459,6 +474,8 @@ const CASES: Record<string, string> = {
   rebuild: "session start, switch, branch and tree rebuild from the active branch",
   pending: "pending-close reminders retain evidence and remain bounded",
   menu: "status-menu stage close gives tool guidance without writing files",
+  console:
+    "the fullscreen console reopens after local actions with their result, stays open on refusals, closes on hand-offs to the model, and the inline setting keeps the status menu",
   preflight: "init command preflight rejects existing directories and non-git roots",
   "init-format-2": "a new repository starts at format 2: entering a session neither asks about nor announces an upgrade",
   "upgrade-prompt":
@@ -1655,6 +1672,69 @@ async function acceptance(name: string, root: string): Promise<void> {
       assert.equal(h.messages.length, 0);
       assert.deepEqual((await loadAll(repo)).files, before);
       assert.equal((await loadAll(repo)).stages[0]?.status, "active");
+    } else if (name === "console") {
+      const repo = await initialized(root);
+      assert((await stage(repo, main, { action: "start", id: "S01" })).ok);
+      h.ui.fullscreen = true;
+      const view = { section: "stages" as const, query: "", selected: "S01" };
+      // Local actions reopen the console on the same item with a one-line result; Esc (an exhausted script) closes it.
+      h.ui.consoleChoices = [
+        { action: "check", view },
+        { action: "stage", stage: "S01", view: { ...view, query: "s0" } },
+        { action: "new-round", view },
+      ];
+      await command(h, "roadmap");
+      assert.equal(h.ui.consoleCalls.length, 4);
+      assert.deepEqual(h.ui.consoleCalls[0]?.state, {});
+      assert.deepEqual(h.ui.consoleCalls[1]?.state.view, view);
+      assert.equal(h.ui.consoleCalls[1]?.state.message?.level, "info");
+      assert.match(h.ui.consoleCalls[1]?.state.message?.text ?? "", /Check passed; the report is in the conversation/);
+      assert.deepEqual(h.ui.consoleCalls[2]?.state.view, { ...view, query: "s0" });
+      assert.match(h.ui.consoleCalls[2]?.state.message?.text ?? "", /S01 status posted to the conversation/);
+      // A refused action stays in the console with the reason instead of a notification.
+      assert.deepEqual(h.ui.consoleCalls[3]?.state.message, { text: "Close the active round before opening another.", level: "error" });
+      assert.equal(h.messages.length, 2);
+      assert.match(h.messages[0] ?? "", /check passed/);
+      assert.match(h.messages[1] ?? "", /S01/);
+      assert.equal(h.ui.notifications.length, 0);
+      assert.equal(h.kickoffs.length, 0);
+
+      // Closing a stage needs the model, so the console closes and the guidance becomes a notification.
+      h.ui.consoleCalls = [];
+      h.ui.consoleChoices = [{ action: "close", stage: "S01", view }];
+      const before = (await loadAll(repo)).files;
+      await command(h, "roadmap");
+      assert.equal(h.ui.consoleCalls.length, 1);
+      assert.match(h.ui.notifications.at(-1)?.message ?? "", /roadmap_stage/);
+      assert.deepEqual((await loadAll(repo)).files, before);
+
+      // Planning a round arms the interview and hands it to the conversation.
+      h.ui.consoleCalls = [];
+      h.ui.consoleChoices = [{ action: "plan-round", view: { section: "rounds", query: "" } }];
+      await command(h, "roadmap");
+      assert.equal(h.ui.consoleCalls.length, 1);
+      assert.equal(h.kickoffs.length, 1);
+      assert.match(h.kickoffs[0] ?? "", /roadmap_round_plan/);
+
+      // Closing the round runs its dialogs, writes, and reopens with the result.
+      assert((await call(h, "roadmap_stage", { action: "drop", id: "S01", reason: "Defer" })).ok);
+      h.ui.consoleCalls = [];
+      h.ui.consoleChoices = [{ action: "close-round", view: { section: "rounds", query: "", selected: "R1" } }];
+      await command(h, "roadmap");
+      assert.equal(h.ui.consoleCalls.length, 2);
+      assert.equal((await loadAll(repo)).rounds[0]?.status, "closed");
+      assert.equal(h.ui.consoleCalls[1]?.state.message?.level, "info");
+      assert.match(h.ui.consoleCalls[1]?.state.message?.text ?? "", /Closed and froze R1/);
+      assert.equal(h.ui.consoleCalls[1]?.model.rounds[0]?.status, "closed");
+      assert.match(h.messages.at(-1) ?? "", /Closed and froze R1/);
+
+      // The inline setting keeps the one-shot status menu.
+      h.ui.fullscreen = false;
+      h.ui.consoleCalls = [];
+      h.ui.menu = { action: "check" };
+      await command(h, "roadmap");
+      assert.equal(h.ui.consoleCalls.length, 0);
+      assert.match(h.messages.at(-1) ?? "", /check passed/);
     } else if (name === "preflight") {
       await mkdir(join(root, "docs/adr"), { recursive: true });
       await writeFile(join(root, "docs/adr/existing.md"), "user's ADR");
@@ -2143,6 +2223,8 @@ async function acceptance(name: string, root: string): Promise<void> {
             ? createTuiUi(
                 {
                   hasUI: true,
+                  mode: ctx.mode,
+                  cwd: ctx.cwd,
                   ui: {
                     ...ctx.ui,
                     select: async (title, options) => {

@@ -10,6 +10,7 @@ import { interceptionReason } from "#src/interception.ts";
 import { PluginStatePublisher } from "#src/plugin-state.ts";
 import { registerPrometheusContract } from "#src/prometheus.ts";
 import { RoadmapSession, type UiFactory } from "#src/ses.ts";
+import { uiMenuReader } from "#src/settings.ts";
 import { roadmapStatus } from "#src/state.ts";
 import { registerTools, toolResult, upgradeAfterDialog } from "#src/tools.ts";
 import { createTuiUi } from "#src/ui.ts";
@@ -25,7 +26,8 @@ export function __setUiFactory(factory?: UiFactory): void {
 
 export default function roadmap(pi: ExtensionAPI): void {
   const ses = new RoadmapSession(pi);
-  const uiFor: UiFactory = (ctx) => (testUiFactory ?? ((host) => createTuiUi(host, pi)))(ctx);
+  const uiMenu = uiMenuReader(pi.logger);
+  const uiFor: UiFactory = (ctx) => (testUiFactory ?? ((host) => createTuiUi(host, pi, uiMenu)))(ctx);
   let warned = false;
   const warn = (error: unknown): void => {
     if (warned) return;

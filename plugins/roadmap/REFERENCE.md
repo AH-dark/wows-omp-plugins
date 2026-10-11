@@ -95,7 +95,7 @@ Closing a round records its goal outcome in the round's `## Outcome`: `### Asses
 
 The same ID can continue through later rounds (`R1 → R2 → R3`). `check` validates every hop: exactly one occurrence is not `carried`; every other occurrence is `carried`, references the next round and matches that item's `carried_from`. Other duplicate IDs are errors.
 
-The close dialog authorizes closing only the round and file snapshot reviewed before it opened; from the status menu, the snapshot is taken when the menu appears. If the round closes, another round opens, or any of its files change while the menu or dialog is pending, the close is refused as stale and writes nothing.
+The close dialog authorizes closing only the round and file snapshot reviewed before it opened; from the status menu or the console, the snapshot is taken when it appears, and the console takes a fresh one each time it reopens. If the round closes, another round opens, or any of its files change while the menu, console or dialog is pending, the close is refused as stale and writes nothing.
 
 `/roadmap new-round` can import selected trigger-based carried TODO IDs from frozen rounds. Imported items get fresh IDs, keep their origin and start with a trigger; the old target stage does not carry over, and the old round stays untouched. You cannot skip the lowest-numbered planned round or create a brand-new round while any planned round remains.
 

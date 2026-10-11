@@ -24,7 +24,7 @@ omp plugin install roadmap@wows-omp-plugins
 4. 让代理开始一个阶段。它会拿到交接内容，其中包括本轮的目标、约束和非目标，该阶段的目标、范围、标准、TODO 和相关 ADR，前置阶段交付了什么，以及已为它制定的计划，并据此规划工作。
 5. 工作完成后，代理为每条标准提供证据并关闭阶段。本轮所有阶段都关闭或放弃后，运行 `/roadmap close-round`。
 
-随时可以用 `/roadmap` 打开状态菜单。
+随时可以用 `/roadmap` 打开路线图控制台。
 
 ## 用法
 
@@ -89,7 +89,7 @@ omp plugin install roadmap@wows-omp-plugins
 | 命令 | 行为 |
 | --- | --- |
 | `/init-project` | 检查前置条件并开始初始化访谈。 |
-| `/roadmap` | 状态菜单：活动和计划中的轮次、日期、阶段、TODO 数量和可用操作。 |
+| `/roadmap` | 控制台：活动轮次的阶段、所有轮次和未完成的 TODO，以及它们的详情、日期和当前可用的操作。`uiMenu` 设为 `inline` 时改为状态菜单。 |
 | `/roadmap stage <id>` | 显示阶段及其交接内容，但不开始它。 |
 | `/roadmap check [--fix]` | 检查文档一致性；`--fix` 重新生成自动生成的区块。 |
 | `/roadmap upgrade` | 采用仓库格式 2。 |
@@ -117,7 +117,23 @@ omp plugin install roadmap@wows-omp-plugins
 
 ## 设置
 
-插件没有设置项。
+`omp plugin config` 使用的包名：`wows-omp-plugin-roadmap`。
+
+```bash
+omp plugin config set wows-omp-plugin-roadmap uiMenu inline
+```
+
+| 设置 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `uiMenu` | `fullscreen` \| `inline` | `fullscreen` | 决定 `/roadmap` 和写入预览在终端里的样子。 |
+
+设为 `fullscreen` 时，`/roadmap` 打开一个占满终端的控制台。Tab 在活动轮次的阶段、所有轮次和未完成的 TODO 之间切换。右侧显示选中项的状态、目标日期与实际日期、依赖、关联的 ADR、未完成的 TODO 和正文。直接输入即可搜索。Enter 把选中阶段或轮次的状态发到对话中；在 TODO 上按 Enter 会跳到它的目标阶段。Shift+X 关闭阶段，Shift+R 关闭轮次，Shift+N 开启或激活下一轮，Shift+P 规划一个轮次，Shift+C 运行检查。Esc 关闭控制台。
+
+检查和关闭轮次在控制台内完成，完成后控制台会重新打开，停在同一项上，并显示一行结果。关闭阶段、规划轮次和开启轮次需要代理来做，所以控制台会关闭，回到对话继续；关闭阶段时会留下一条提示，说明该向代理提什么。关闭轮次时的提问仍是小对话框。
+
+写入预览在左侧列出文件，右侧显示选中的文件；Space 在渲染视图和原始文本之间切换。Shift+W 或 Write 行写入全部文件，Esc 或 Cancel 不写入任何内容。
+
+设为 `inline` 时，控制台和预览都是以前版本的选择菜单。RPC 和 ACP 客户端始终使用这些菜单。每次使用时都会重新读取这个设置，修改后下次就生效，无需重启。无法识别的值会回退到 `fullscreen`，并在日志中记录警告。
 
 ## 与其他插件配合
 

@@ -11,6 +11,17 @@
   "omp": {
     "extensions": [
       "./src/index.ts"
-    ]
+    ],
+    "settings": {
+      "uiMenu": {
+        "type": "enum",
+        "values": [
+          "inline",
+          "fullscreen"
+        ],
+        "default": "fullscreen",
+        "description": "Open /roadmap as a fullscreen console with fullscreen write previews, or keep the inline select menus"
+      }
+    }
   }
 }

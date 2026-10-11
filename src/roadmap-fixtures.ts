@@ -183,6 +183,99 @@ export function modelFixture(): Model {
   return { index, rounds, stages, todos: [todoFixture()], adrs: { managed: true, records: [adrRecord(adrFixture())], parseErrors: [] } };
 }
 
+/** A format-2 roadmap in mid-flight for the fullscreen console: history, an active round with every stage status, planned rounds. */
+export function consoleModelFixture(): Model {
+  const stage = (id: string, round: string, title: string, overrides: Partial<StageDoc> = {}): StageDoc =>
+    stageFixture({
+      format: 2,
+      path: `docs/roadmap/${round}/stages/${id}.md`,
+      id,
+      round,
+      title,
+      created: round === "R1" ? "2026-08-01" : round === "R2" ? "2026-09-12" : "2026-10-01",
+      ...overrides,
+    });
+  const round = (id: string, title: string, overrides: Partial<RoundDoc>): RoundDoc =>
+    roundFixture({ format: 2, path: `docs/roadmap/${id}/README.md`, id, title, ...overrides });
+  const stages = [
+    stage("S01", "R1", "Product catalog", { status: "closed", started: "2026-08-02", closed: "2026-08-20" }),
+    stage("S02", "R1", "Search", { status: "closed", started: "2026-08-21", closed: "2026-09-08" }),
+    stage("S04", "R2", "Cart persistence", { status: "closed", started: "2026-09-12", closed: "2026-09-19" }),
+    stage("S05", "R2", "Payment provider integration with retries, idempotency keys and webhook signature verification", {
+      status: "active",
+      target: "2026-10-05",
+      started: "2026-09-20",
+      depends_on: ["S04"],
+      objective: "Customers pay by card through the provider, and a failed or repeated webhook never charges twice.",
+      scope_in: "- Card payments with 3-D Secure\n- Webhook verification and retries",
+      scope_out: "- Refunds (R3)\n- Wallets",
+      done_criteria:
+        "- DC1 — A card payment completes end to end\n  - Verify: `bun test checkout` and a sandbox walkthrough\n- DC2 — A replayed webhook is ignored\n  - Verify: `bun test webhooks`",
+      design_constraints: "Follow ADR-0003 and ADR-0004.",
+      risks: "Provider sandbox outages slow testing.",
+      amendments: "",
+      free_work_log: "",
+    }),
+    stage("S06", "R2", "Order confirmation emails", { depends_on: ["S05"], target: "2026-10-25" }),
+    stage("S07", "R2", "Checkout analytics", { depends_on: ["S04"] }),
+    stage("S08", "R2", "Legacy coupon import", { status: "dropped", closed: "2026-09-25" }),
+    stage("S09", "R3", "Refund API", { depends_on: [] }),
+  ];
+  const rounds = [
+    round("R1", "Foundation", { status: "closed", opened: "2026-08-01", closed: "2026-09-10", frozen_sha256: "0".repeat(64) }),
+    round("R2", "Checkout and payments", {
+      status: "active",
+      target: "2026-10-31",
+      opened: "2026-09-12",
+      goal: "A customer can pay for a cart by card and receives a confirmation.",
+    }),
+    round("R3", "Refunds and disputes", { status: "planned", target: "2026-12-15", opened: null, goal: "Support can refund an order." }),
+    round("R4", "Internationalization of the storefront, currency handling and translated transactional emails", {
+      status: "planned",
+      opened: null,
+      goal: "Shop in three languages and currencies.",
+    }),
+  ];
+  const item = (id: string, title: string, overrides: Partial<TodoDoc["items"][number]>): TodoDoc["items"][number] => ({
+    id,
+    title,
+    status: "open",
+    severity: "normal",
+    source: "S05 (2026-09-28)",
+    body: "",
+    ...overrides,
+  });
+  const todos: TodoDoc[] = [
+    todoFixture({
+      format: 2,
+      path: "docs/roadmap/R2/TODO.md",
+      round: "R2",
+      items: [
+        item("T010", "Handle a provider timeout during the 3-D Secure challenge", {
+          severity: "high",
+          target: "S05",
+          body: "Seen twice in the sandbox; the order stays pending.",
+        }),
+        item("T011", "Template review with legal", { target: "S06" }),
+        item("T012", "Shard the order table", { severity: "low", trigger: "Traffic passes 1k orders a day" }),
+        item("T013", "Retry budget alerting", { status: "resolved", target: "S05", reference: "abc1234" }),
+      ],
+    }),
+    todoFixture({
+      format: 2,
+      path: "docs/roadmap/R3/TODO.md",
+      round: "R3",
+      items: [item("T014", "Partial refunds for bundles", { target: "S09" })],
+    }),
+  ];
+  const index = { format: 2 as const, path: "docs/roadmap/README.md", title: "Shop platform", body: "" };
+  const adrs = [
+    adrRecord(adrFixture({ id: "ADR-0003", title: "Use one card provider", stage: "S05", status: "accepted" })),
+    adrRecord(adrFixture({ id: "ADR-0004", title: "Retry webhooks with exponential backoff", stage: "S05", status: "proposed" })),
+  ];
+  return { index, rounds, stages, todos, adrs: { managed: true, records: adrs, parseErrors: [] } };
+}
+
 const temporaryDirectories: string[] = [];
 /** A git work tree with the fixture roadmap and one adr-plugin ADR; `repo` carries the real ADR service. */
 export async function diskFixture(): Promise<{ repo: Repo; model: Model; adrs: AdrDoc[] }> {
