@@ -12,7 +12,7 @@
 omp plugin install judge-dispatch@wows-omp-plugins
 ```
 
-需要 OMP 18.5.1 或更高版本。自动路由需要 `judge` 角色背后是原生判断模型（见[快速上手](#快速上手)）；按任务显式绑定模型不需要。安装后重启会话。
+需要 OMP 18.5.1 或更高版本。自动路由需要 `judge` 角色背后是原生判断模型（见[快速上手](#快速上手)）；为单个任务固定模型不需要。安装后重启会话。
 
 ## 快速上手
 
@@ -72,22 +72,21 @@ judge-dispatch  #1 explore → task (0.87) ; #2 task kept (0.93) · effort med �
 
 选中的模型会排到这次派生的选择器最前面，模型池的其余部分成为它的重试链。
 
-### 为单个任务显式指定模型角色或模型
+### 为单个任务固定模型角色或模型
 
-无需新建代理类型：让父代理先调用 `judge_dispatch_model`，等待成功结果后，在下一轮工具调用中派发同名的 `task`：
+想让某个子代理改用另一个模型角色，又不想为此新建代理类型时，直接告诉父代理即可，例如"用 abliterated 角色跑这次审查"。插件会在系统提示中加一行说明，教父代理把任务条目的 agent 写成 `<agent>@<role>`：
 
 ```text
-judge_dispatch_model({"name":"ReviewLogic","role":"abliterated"})
-task({"name":"ReviewLogic","agent":"deep-low","task":"Review the logic"})
+task({"name":"ReviewLogic","agent":"deep-low@abliterated","task":"Review the logic"})
 ```
 
-角色必须存在于 OMP 的 `modelRoles` 中；也可以使用 `{"name":"ReviewLogic","model":"provider/model:thinking"}` 指定具体模型。`role` 和 `model` 必须二选一。绑定仅存于当前会话，按不含点号的任务名称精确匹配；下一次匹配的派发占用绑定，派生时消费。批量派发时，已绑定名称不得重复。代理类型仍可正常路由，`judgeEffort` 仍生效。显式绑定只跳过 judge 的**模型选择**，用目标角色的首选模型和已配置的回退选择器替换原代理的模型池。`judge` 角色不可用时也能使用。同一进程内切换出去再返回会话会保留待用绑定，但不含绑定调用的对话分支不能使用它，需要在该分支重新绑定。
+写成 `<agent>@<provider>/<model>` 则固定一个具体模型，例如 `scout@provider/model:high`。角色必须存在于 OMP 的 `modelRoles` 中；具体模型必须能解析到一个已启用且有凭据的模型。
 
-可用 `judge_dispatch_model({"op":"clear","name":"ReviewLogic"})` 清除未使用的绑定。若任务调用结束时既未派生子代理也未留下后台任务，绑定会恢复为待用状态，供重试使用。清除操作不会改变已派发任务的显式模型。先前已绑定派发尚未启动时，不带新绑定的重试会被拒绝；若后台任务失败或被取消，先重新绑定该名称再重试。为避免排队任务或重复名称取走错误绑定，插件会给每次绑定派发分配唯一名称，例如 `ReviewLogic_jd0123456789ab`；后续交互请使用 OMP 返回的实际子代理 ID。
+插件会在 OMP 执行调用前去掉固定标记，所以子代理仍以 `deep-low` 运行，但使用该角色的首选模型和该角色的回退链（角色没有回退链时使用 `default` 链）。固定只跳过 judge 的**模型选择**：代理路由和 `judgeEffort` 照常生效，`judge` 角色不可用时也能固定。与 OMP 其他地方一样，任务的 `effort` 仍优先于选择器的思考强度后缀。
 
-根据 OMP 的正常规则，任务的 `effort`（包括 judge 路由的强度）优先于模型选择器的思考强度后缀。即使绑定 `provider/model:high`，任务使用 `effort: "lo"` 时也不会强制高思考强度。
+被固定的子代理会得到唯一 ID，例如 `ReviewLogic_jd0123456789ab`，因此排队中或之后复用同名的任务都拿不走它的模型。OMP 会显示并保存改写后的调用，所以插件还会告诉父代理应用了哪些固定；任务结果会返回新 ID，父代理应当用它指代该子代理。
 
-未知角色、无法解析的模型、冲突绑定、同名歧义或工作流专属任务会被明确拒绝，不会悄悄改用原代理模型；已批准的 Prometheus 计划执行期间不能使用。这里覆盖的是模型列表，**不会改变 OMP 记录的角色身份**：若直接指定的模型没有自己的回退链，运行时仍可能继承原代理的链；若目标角色显式配置了空链而原角色有回退链，插件会拒绝派生，避免借用错误的链。OMP 自身仍可能执行凭据回退或更高优先级的重试规则。详见[参考](REFERENCE.zh.md#从显式绑定到派生)。
+固定无法生效时，插件会拒绝整次调用并说明原因，而不是改用代理自己的模型运行。这些情况包括：未知角色、无法解析的模型、`metis` 这类工作流专属代理，以及已批准的 Prometheus 计划执行期间的任何固定。未安装本插件时，OMP 自身会把 `deep-low@abliterated` 当作未知代理拒绝。固定替换的是模型列表，不是 OMP 记录的角色身份，所以 OMP 的凭据回退和更高优先级的重试规则仍会生效。若固定目标自己没有回退链，而 OMP 会改用代理原角色的回退链重试，插件会在派生时拒绝。详见[参考](REFERENCE.zh.md#从固定代理到派生)。
 
 ### 你会看到什么
 
@@ -140,6 +139,8 @@ omp plugin config set wows-omp-plugin-judge-dispatch providerWeights "openai=2,a
 ## 已知限制
 
 - `eval.agent()` 和 `workpool()` 的子代理不会被路由，因为 OMP 的 `before_subagent_spawn` 钩子只能更改子代理的模型，不能更改代理类型。
+- 只有 `task` 条目能固定模型：OMP 会在任何插件钩子运行前检查 `eval.agent()` 或 `workpool()` 子代理的代理名，所以 `scout@abliterated` 在那里会被当作未知代理而失败。
+- 被固定的子代理 ID 会带上 `_jd…` 后缀，而不是你给的名字。
 - OMP 会把连续的状态行折叠成一行，所以同一轮中的多个 `task` 调用可能只看得到最后一行。
 - 模型选择依赖 OMP 模型注册表提供的评分和价格；主模型没有评分时，保留原先配置的模型。
 

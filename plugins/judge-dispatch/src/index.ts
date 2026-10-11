@@ -21,10 +21,9 @@ import {
   acceptRoutingDecision,
   blendedPrice,
   DIFFICULTY_EFFORT,
-  ExplicitModelBindings,
-  type ExplicitModelSource,
   ExplicitSpawnClaims,
   type ExplicitSpawnModel,
+  isPinnedSpawnName,
   isScored,
   isWorkflowOwnedAgent,
   type JudgeDispatchSettings,
@@ -450,154 +449,119 @@ function unavailableNotifier(pi: ExtensionAPI): (ctx: ExtensionContext) => void 
   };
 }
 
-/** Resolve a binding to the patterns its spawn receives, refusing a target the host would not resolve as bound. */
-function explicitSpawnModel(source: ExplicitModelSource, ctx: ExtensionContext): ExplicitSpawnModel & { target: string } {
+/** Resolve a pinned target to the patterns its spawn receives, refusing one the host would not resolve as pinned. */
+function explicitSpawnModel(target: string, ctx: ExtensionContext): ExplicitSpawnModel {
   const settings = scopedSettings(ctx);
-  const role = "role" in source ? source.role : undefined;
-  const target = "role" in source ? `@${source.role}` : source.model;
-  if (role !== undefined && resolveExplicitModelRole(target, settings) !== role) throw new Error(`Unknown model role ${target}`);
-  // A role alias here would expand to that role's selectors and then take the default chain instead of the role's own.
-  if (role === undefined && (!target.includes("/") || target.startsWith("@") || target.startsWith("pi/") || target.includes(","))) {
-    throw new Error("A concrete model must be a single provider/model selector, not a role alias or list");
+  const role = target.includes("/") ? undefined : target;
+  const display = role === undefined ? target : `@${role}`;
+  if (role !== undefined && resolveExplicitModelRole(display, settings) !== role) throw new Error(`unknown model role ${role}`);
+  // A role alias or list here would expand to that role's selectors and then take the default chain instead of the role's own.
+  if (role === undefined && (target.startsWith("@") || target.startsWith("pi/") || target.includes(","))) {
+    throw new Error("a concrete model must be a single provider/model selector");
   }
-  const selectors = resolveConfiguredModelPatterns(target, settings);
-  if (selectors.length === 0) throw new Error(`No models configured for ${target}`);
+  const selectors = resolveConfiguredModelPatterns(display, settings);
+  if (selectors.length === 0) throw new Error(`no models are configured for ${display}`);
 
   const chains = readHostSetting(settings, "retry.fallbackChains") as Record<string, unknown>;
   const chain = (role === undefined ? undefined : chains[role]) ?? chains.default ?? [];
   if (!Array.isArray(chain) || !chain.every((entry): entry is string => typeof entry === "string")) {
-    throw new Error(`Invalid fallback chain for ${target}`);
+    throw new Error(`the fallback chain for ${display} is invalid`);
   }
-  if (chain.some((entry) => entry.endsWith("/*"))) throw new Error("Provider wildcard fallback chains cannot be applied per task");
+  if (chain.some((entry) => entry.endsWith("/*"))) throw new Error("provider wildcard fallback chains cannot be applied per task");
   // Match the spawn-time lookup: disabled providers leave the registry before any selector resolves.
   const disabled = disabledProviderIds(settings);
   const enabled = ctx.modelRegistry.getAvailable().filter((model) => !disabled.has(model.provider));
   // A concrete model must resolve itself; a role may resolve through its own fallback chain.
   if (!resolveModelOverride(role === undefined ? selectors : [...selectors, ...chain], { getAvailable: () => enabled }, settings).model) {
-    throw new Error(`No enabled model resolves for ${target}`);
+    throw new Error(`no enabled model resolves for ${display}`);
   }
   return {
+    target: display,
     patterns: [...selectors, ...chain],
-    note: `judge-dispatch explicit ${role === undefined ? "model" : "role"} ${target}`,
-    role: role !== undefined,
-    target,
+    note: `judge-dispatch pinned ${role === undefined ? "model" : "role"} ${display}`,
   };
 }
 
-/** Task name a `judge_dispatch_model` call targets, called directly or through its `xd://` device. */
-function bindCallTarget(toolName: string, args: object): string | undefined {
-  if (toolName === "judge_dispatch_model") return "name" in args && typeof args.name === "string" ? args.name : undefined;
-  if (toolName !== "write" || !("path" in args) || args.path !== "xd://judge_dispatch_model") return undefined;
-  if (!("content" in args) || typeof args.content !== "string") return undefined;
-  try {
-    const parsed: unknown = JSON.parse(args.content);
-    return parsed && typeof parsed === "object" && "name" in parsed && typeof parsed.name === "string" ? parsed.name : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * Rename every pinned item of a task call to a unique spawn name with its model
+ * claim, and strip the pin from its agent. Throws on the first pin that cannot
+ * apply; the caller then releases the call's claims and refuses the call.
+ */
+function applyPins(
+  input: Record<string, unknown>,
+  routes: readonly ParsedTaskRoute[],
+  claims: ExplicitSpawnClaims,
+  toolCallId: string,
+  ctx: ExtensionContext,
+): { input: Record<string, unknown>; routes: ParsedTaskRoute[]; confirmation: string } {
+  const models = routes.map((route) => {
+    if (route.explicitModel === undefined) return undefined;
+    const label = `${route.requestedAgent ?? ""}@${route.explicitModel}`;
+    if (!route.requestedAgent || !route.explicitModel) {
+      throw new Error(`write the agent as <agent>@<model role> or <agent>@<provider>/<model>, not ${JSON.stringify(label)}`);
+    }
+    if (isWorkflowOwnedAgent(route.requestedAgent)) throw new Error(`workflow-owned agent ${route.requestedAgent} keeps its own model`);
+    if (route.modelPinned) throw new Error(`task item ${label} already sets its model`);
+    try {
+      return explicitSpawnModel(route.explicitModel, ctx);
+    } catch (error) {
+      throw new Error(`${label}: ${errorMessage(error)}`);
+    }
+  });
+  const applied: string[] = [];
+  const choices = routes.map((route, index): RouteChoice | undefined => {
+    const model = models[index];
+    if (!model || !route.requestedAgent) return undefined;
+    const spawnName = claims.claim(toolCallId, route.name ?? route.requestedAgent, model);
+    applied.push(
+      `${route.name ?? "an unnamed item"} with agent ${route.requestedAgent}@${route.explicitModel} now runs as ${spawnName} on ${model.target}`,
+    );
+    return { agent: route.requestedAgent, spawnName };
+  });
+  return {
+    input: rewriteTaskRoutes(input, routes, choices),
+    routes: routes.map((route, index) => {
+      const model = models[index];
+      return model ? { ...route, modelPinned: true, explicitModel: model.target } : route;
+    }),
+    confirmation: `judge-dispatch rewrote the pinned items of this task call before they ran: ${applied.join("; ")}. OMP shows and stores that rewrite in place of the call you wrote, which is why your call lists the bare agent and the new name; the pin is in effect, so do not re-dispatch.`,
+  };
 }
 
+/** Whether an approved Prometheus plan executes on this branch, read from its latest valid workflow state rather than wording. */
 function prometheusExecuting(ctx: ExtensionContext): boolean {
   const branch = ctx.sessionManager.getBranch();
   for (let index = branch.length - 1; index >= 0; index--) {
     const entry = branch[index];
     if (entry?.type !== "custom" || entry.customType !== "wows-omp-omo-prometheus.state") continue;
-    const phase = (entry.data as { phase?: unknown } | undefined)?.phase;
+    const data: unknown = entry.data;
+    const phase = data && typeof data === "object" && "phase" in data ? data.phase : undefined;
     if (phase === "idle" || phase === "planning") return false;
     if (phase === "executing") return true;
   }
   return false;
 }
 
-/** Whether a tool call's result is on the active branch, so state that call created belongs to this conversation path. */
-function toolResultOnBranch(ctx: ExtensionContext, toolCallId: string): boolean {
-  return ctx.sessionManager
-    .getBranch()
-    .some((entry) => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolCallId === toolCallId);
-}
+const PIN_GUIDANCE =
+  "judge-dispatch: when the user asks to run a subagent on a specific OMP model role or model rather than its agent's own, write that task item's agent as `<agent>@<model role>` (for example `scout@smol`) or `<agent>@<provider>/<model>`. The judge then still routes the agent and effort, never the model. judge-dispatch rewrites the call before it runs, and OMP keeps that rewrite in place of your call: it then shows the bare agent and a name ending in `_jd` plus 12 hex digits (built from the item's name, or its agent when unnamed). That rewrite is the pin taking effect, not a mistake, so never re-dispatch because of it. Address the child by the id the task result returns. To rerun a pinned task, write the pin in its agent again. A pin that cannot apply refuses the call with the reason.";
 
 export default function judgeDispatch(pi: ExtensionAPI): void {
   const notifyUnavailable = unavailableNotifier(pi);
   registerLegacyRouteRecords(pi);
-  // One state per session id for the life of the process: switching back to a session finds its bindings again.
-  const statesByManager = new WeakMap<object, Map<string, { pending: PendingSpawnRoutes; bindings: ExplicitModelBindings }>>();
-  const stateFor = (ctx: ExtensionContext) => {
-    let states = statesByManager.get(ctx.sessionManager);
-    if (!states) {
-      states = new Map();
-      statesByManager.set(ctx.sessionManager, states);
+  const pendingBySession = new WeakMap<object, PendingSpawnRoutes>();
+  const pendingFor = (ctx: ExtensionContext): PendingSpawnRoutes => {
+    let pending = pendingBySession.get(ctx.sessionManager);
+    if (!pending) {
+      pending = new PendingSpawnRoutes();
+      pendingBySession.set(ctx.sessionManager, pending);
     }
-    const sessionId = ctx.sessionManager.getSessionId();
-    let state = states.get(sessionId);
-    if (!state) {
-      state = { pending: new PendingSpawnRoutes(), bindings: new ExplicitModelBindings() };
-      states.set(sessionId, state);
-    }
-    return state;
+    return pending;
   };
-  const pendingFor = (ctx: ExtensionContext): PendingSpawnRoutes => stateFor(ctx).pending;
-  const bindingsFor = (ctx: ExtensionContext): ExplicitModelBindings => stateFor(ctx).bindings;
   const claims = new ExplicitSpawnClaims();
 
-  const bindParameters = pi.typebox.Type.Object({
-    name: pi.typebox.Type.String({ description: "Exact name of one future task item, without dots" }),
-    op: pi.typebox.Type.Optional(pi.typebox.Type.Union([pi.typebox.Type.Literal("bind"), pi.typebox.Type.Literal("clear")])),
-    role: pi.typebox.Type.Optional(pi.typebox.Type.String({ description: "OMP model role, e.g. abliterated" })),
-    model: pi.typebox.Type.Optional(pi.typebox.Type.String({ description: "Concrete provider/model selector, alternative to role" })),
-  });
-  pi.registerTool({
-    name: "judge_dispatch_model",
-    label: "Bind task model",
-    description:
-      "Bind the next task item with an exact name to an explicit OMP model role or concrete provider/model, or clear a binding no task has used yet. Call it on its own and wait for its result, then dispatch the task in a later tool round: a task in the same round as its binding call is refused. The bound item runs under a unique spawn name derived from its name. The judge still routes agent and effort, but not this task's model.",
-    parameters: bindParameters,
-    async execute(id, params: { name: string; op?: "bind" | "clear"; role?: string; model?: string }, _signal, _onUpdate, ctx) {
-      const name = params.name.trim();
-      const role = params.role?.trim().replace(/^@/, "");
-      const model = params.model?.trim();
-      try {
-        if (!name || name.includes(".")) throw new Error("Provide a nonempty task name without dots");
-        const bindings = bindingsFor(ctx);
-        if (params.op === "clear") {
-          if (role || model) throw new Error("Clear accepts only the task name");
-          if (bindings.clear(name)) return { content: [{ type: "text", text: `Cleared model binding for ${name}` }] };
-          const text = claims.awaiting(bindings, name)
-            ? `No model binding pending for ${name}; the task already dispatched with it has not started and keeps its explicit model when it starts. If that task failed or was cancelled, bind ${name} again`
-            : `No model binding pending for ${name}`;
-          return { content: [{ type: "text", text }] };
-        }
-        const source: ExplicitModelSource | undefined = role ? { role } : model ? { model } : undefined;
-        if (!source || (role && model)) throw new Error("Provide exactly one of role or model");
-        if (prometheusExecuting(ctx)) throw new Error("Explicit model bindings are unavailable while an approved Prometheus plan executes");
-        const { target } = explicitSpawnModel(source, ctx);
-        const existing = bindings.requested(name);
-        // A binding made on a branch this conversation has left belongs to that branch; binding again here replaces it.
-        if (existing && !toolResultOnBranch(ctx, existing.callId)) bindings.clear(name);
-        const refusal = bindings.bind(name, { source, callId: id });
-        if (refusal) throw new Error(refusal);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Bound task ${name} to ${target}. Now dispatch exactly one task item named ${name}, in a later tool round than this call, and keep that name as is. judge-dispatch automatically appends a unique suffix to the name the child actually spawns under (${name}_jd…), so the child id the task result returns differs from ${name}; that suffix confirms the binding was applied. Refer to the child by the returned id.`,
-            },
-          ],
-        };
-      } catch (error) {
-        return { content: [{ type: "text", text: errorMessage(error) }], isError: true };
-      }
-    },
-  });
-
-  // Every tool_call hook of a message runs before its tools execute, so this is the one point that sees a bind and a task of the same round together.
-  pi.on("assistant_message", (event, ctx) => {
-    const targets = event.message.content.flatMap((block) => {
-      if (block.type !== "toolCall") return [];
-      const target = bindCallTarget(block.name, block.arguments);
-      return target === undefined ? [] : [target];
-    });
-    bindingsFor(ctx).startRound(targets);
-    return undefined;
+  pi.on("before_agent_start", (event) => {
+    if (!pi.getActiveTools().includes("task")) return undefined;
+    return { systemPrompt: [...event.systemPrompt, PIN_GUIDANCE] };
   });
 
   pi.on("tool_execution_end", (event) => {
@@ -610,108 +574,56 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    const bindTarget = bindCallTarget(event.toolName, event.input);
-    if (bindTarget !== undefined) {
-      bindingsFor(ctx).announce(bindTarget);
-      return undefined;
-    }
     if (event.toolName !== "task") return undefined;
     let working = false;
     let indicator = false;
-    let unclaimed = false;
-    // Once a bound item is renamed to its claim's spawn name, every outcome must keep that name.
-    let keep: { input: Record<string, unknown> } | undefined;
+    // Once pinned items carry their spawn names, every later outcome must keep them.
+    let pinned: { input: Record<string, unknown>; additionalContext: string } | undefined;
     try {
-      if (prometheusExecuting(ctx)) return undefined;
       const input = event.input as Record<string, unknown>;
-      const bindings = bindingsFor(ctx);
-      const rawItems: unknown[] = Array.isArray(input.tasks) ? input.tasks : [input];
-      const names: string[] = [];
-      for (const item of rawItems) {
-        if (!item || typeof item !== "object" || !("name" in item) || typeof item.name !== "string") continue;
-        const name = item.name.trim();
-        if (name) names.push(name);
+      let routes = parseTaskInput(input);
+      const pins = routes?.some((route) => route.explicitModel !== undefined) ?? false;
+      // Prometheus owns agent, effort and model choices while executing its approved plan.
+      if (prometheusExecuting(ctx)) {
+        return pins ? { block: true, reason: "Task models cannot be pinned while an approved Prometheus plan executes" } : undefined;
       }
-      for (const name of names) {
-        let reason = bindings.dispatchConflict(name);
-        if (!reason && claims.reserved(name)) {
-          reason = `Task name ${name} is the spawn name of a task dispatched with an explicit model; use another name`;
-        }
-        // The binding moved to a dispatched task whose child has not started; an unbound retry would silently drop it.
-        if (!reason && !bindings.requested(name) && claims.awaiting(bindings, name)) {
-          reason = `Task ${name} was dispatched with an explicit model that has not started; if that background task failed or was cancelled, call judge_dispatch_model for ${name} again, otherwise wait for it to start or use another name`;
-        }
-        if (reason) return { block: true, reason };
-      }
-      const parsed = parseTaskInput(input);
-      if (!parsed && names.some((name) => bindings.requested(name))) {
+      const reserved = routes?.find((route) => route.explicitModel === undefined && route.name && isPinnedSpawnName(route.name));
+      if (reserved) {
         return {
           block: true,
-          reason:
-            "judge-dispatch cannot read this task call, so its explicit model binding was not applied and stays pending; resend it in the documented task shape",
+          reason: `Task name ${reserved.name} ends like a model-pin spawn name, which judge-dispatch reserves; use another name, and to rerun a pinned task write its agent as <agent>@<model role> or <agent>@<provider>/<model> again`,
         };
       }
-      const bound = (parsed ?? []).flatMap((route) => {
-        const binding = route.name ? bindings.requested(route.name) : undefined;
-        return route.name && binding ? [{ route, name: route.name, binding }] : [];
-      });
-      unclaimed = bound.length > 0;
-      const foreign = bound.find(({ binding }) => !toolResultOnBranch(ctx, binding.callId));
-      if (foreign) {
-        return {
-          block: true,
-          reason: `The model binding for ${foreign.name} was made on another branch of this session and does not apply here; call judge_dispatch_model for ${foreign.name} on this branch, or clear it`,
-        };
-      }
-      const explicit = bound.map(({ route, name, binding }) => {
-        if (names.filter((other) => other === name).length !== 1) {
-          throw new Error(`Explicitly bound task name ${name} must be unique in the call`);
+      let named = input;
+      if (routes && pins) {
+        try {
+          const applied = applyPins(input, routes, claims, event.toolCallId, ctx);
+          ({ input: named, routes } = applied);
+          pinned = { input: named, additionalContext: applied.confirmation };
+        } catch (error) {
+          claims.settle(event.toolCallId);
+          return { block: true, reason: `judge-dispatch could not pin the task model: ${errorMessage(error)}` };
         }
-        if (route.modelPinned || (route.requestedAgent && isWorkflowOwnedAgent(route.requestedAgent))) {
-          throw new Error(`Cannot apply explicit model to workflow-owned or already pinned task ${name}`);
-        }
-        return { route, name, binding, model: explicitSpawnModel(binding.source, ctx) };
-      });
-      const spawnNames = claims.claim(bindings, event.toolCallId, explicit);
-      const routes = parsed?.map((route) => {
-        const item = explicit.find((candidate) => candidate.route === route);
-        return item ? { ...route, modelPinned: true, explicitModel: item.model.target } : route;
-      });
-      const named = routes
-        ? rewriteTaskRoutes(
-            input,
-            routes,
-            routes.map((route) => {
-              const at = explicit.findIndex((item) => item.route.index === route.index);
-              return at < 0 ? undefined : { spawnName: spawnNames[at] };
-            }),
-          )
-        : input;
-      if (explicit.length > 0 && named === input) {
-        claims.settle(event.toolCallId);
-        throw new Error("the bound task item could not be renamed to its spawn name");
       }
-      unclaimed = false;
-      bindings.dispatched(names.filter((name) => !explicit.some((item) => item.name === name)));
-      if (named !== input) keep = { input: named };
       const config = await effectivePluginSettings(ctx.cwd);
       indicator = config.indicator;
       const settings = scopedSettings(ctx);
       const deadlineMs = routingDeadlineMs(readHostSetting(settings, "extensionHandlers.toolCallTimeoutMs"));
       if (deadlineMs === undefined) {
         if (indicator) showRoutingStatus(pi, ctx, "kept the requested agent: extensionHandlers.toolCallTimeoutMs leaves no time to judge");
-        return keep;
+        return pinned;
       }
       const taskTool = pi.getAllTools().find((tool) => tool.name === "task");
       const legalNames = taskTool ? parseLegalAgentNames(taskTool.description) : undefined;
       if (!legalNames?.length) {
         if (indicator) showRoutingStatus(pi, ctx, "kept the requested agent: the task tool lists no agents to route between");
-        return keep;
+        return pinned;
       }
       return await withRoutingDeadline(deadlineMs, async (signal) => {
         if (!routes) return undefined;
         const candidates = await discoverCandidates(ctx, settings, legalNames);
         signal.throwIfAborted();
+        const judged = routes;
         const session: RoutingSession = {
           pi,
           ctx,
@@ -722,31 +634,24 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
             // A judgment that starts after the deadline would set a message the finally block already restored.
             if (!config.indicator || working || signal.aborted) return;
             working = true;
-            setRoutingWorkingMessage(pi, ctx, `judge-dispatch: routing ${routes.length} ${routes.length === 1 ? "task" : "tasks"}…`);
+            setRoutingWorkingMessage(pi, ctx, `judge-dispatch: routing ${judged.length} ${judged.length === 1 ? "task" : "tasks"}…`);
           },
         };
-        const outcomes = await Promise.all(routes.map((route) => judgeRouteFailOpen(session, route, candidates, signal)));
+        const outcomes = await Promise.all(judged.map((route) => judgeRouteFailOpen(session, route, candidates, signal)));
         signal.throwIfAborted();
         const pending = pendingFor(ctx);
-        const choices = routes.map((route, index) => routeChoice(route, outcomes[index] as RouteOutcome, config, candidates, pending));
-        const rewritten = rewriteTaskRoutes(named, routes, choices);
-        if (indicator) showRouteOutcomes(pi, ctx, named, routes, outcomes, choices);
-        return rewritten === input ? undefined : { input: rewritten };
+        const choices = judged.map((route, index) => routeChoice(route, outcomes[index] as RouteOutcome, config, candidates, pending));
+        const rewritten = rewriteTaskRoutes(named, judged, choices);
+        if (indicator) showRouteOutcomes(pi, ctx, named, judged, outcomes, choices);
+        return rewritten === input ? undefined : { ...pinned, input: rewritten };
       });
     } catch (error) {
-      // Failing open before the claim would start a bound task on its original model.
-      if (unclaimed) {
-        return {
-          block: true,
-          reason: `Explicit task model binding failed: ${errorMessage(error)}. The binding stays pending; fix the call, or remove the binding with judge_dispatch_model op "clear"`,
-        };
-      }
       pi.logger.warn("judge-dispatch task interception failed open", { error: errorMessage(error) });
       if (indicator) {
         const timedOut = error instanceof DOMException && error.name === "TimeoutError";
         showRoutingStatus(pi, ctx, `kept the requested agent: routing ${timedOut ? "timed out" : "failed"}`);
       }
-      return keep;
+      return pinned;
     } finally {
       if (working) setRoutingWorkingMessage(pi, ctx);
     }
@@ -756,22 +661,29 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
     if (event.invocationKind !== "task" || !event.spawnKey) return undefined;
     let explicit: ExplicitSpawnModel | undefined;
     try {
-      explicit = claims.take(event.spawnKey);
+      const claim = claims.take(event.spawnKey);
+      if (claim === "lost") {
+        return {
+          block: true,
+          reason: `Task ${event.spawnKey} carries a model-pin spawn name, but its pin is no longer known to judge-dispatch; dispatch it again with the pin in its agent (<agent>@<role>), or use a name without the _jd suffix`,
+        };
+      }
+      explicit = claim;
       if (explicit) {
         if (prometheusExecuting(ctx)) {
           return {
             block: true,
-            reason: `Task ${event.spawnKey} was dispatched with an explicit model before the approved Prometheus plan started executing, so it was not started; dispatch it again after execution ends`,
+            reason: `Task ${event.spawnKey} pinned ${explicit.target} before the approved Prometheus plan started executing, so it was not started; dispatch it again after execution ends`,
           };
         }
-        // One pattern inherits the original role's chain (or default) at spawn; an explicitly empty target chain must not.
-        if (explicit.role && explicit.patterns.length === 1) {
+        // OMP gives a lone pattern the chain of the agent's own role (or `default`); a pin whose target has no chain must not borrow it.
+        if (explicit.patterns.length === 1) {
           const chains = readHostSetting(scopedSettings(ctx), "retry.fallbackChains") as Record<string, unknown>;
           const inherited = (event.modelRole ? chains[event.modelRole] : undefined) ?? chains.default;
           if (Array.isArray(inherited) && inherited.length > 0) {
             return {
               block: true,
-              reason: "Cannot override a role with an empty fallback chain while the original agent inherits a different chain",
+              reason: `Task ${event.spawnKey} pinned ${explicit.target}, which has no fallback chain, but OMP would retry it on the ${event.modelRole ?? "default"} chain; configure ${explicit.target.startsWith("@") ? `retry.fallbackChains.${explicit.target.slice(1)}` : "retry.fallbackChains.default"}`,
             };
           }
         }
@@ -784,7 +696,8 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
       if (primary?.key !== route.primary) return undefined;
       return { model: route.patterns, note: route.note };
     } catch (error) {
-      if (explicit) return { block: true, reason: `Explicit task model binding failed at spawn: ${errorMessage(error)}` };
+      if (explicit)
+        return { block: true, reason: `Task ${event.spawnKey} could not apply its pinned ${explicit.target}: ${errorMessage(error)}` };
       pi.logger.warn("judge-dispatch model selection failed open", { error: errorMessage(error) });
       return undefined;
     }

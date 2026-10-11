@@ -12,7 +12,7 @@ Lets OMP's `judge` model role decide how `task` calls spawn subagents. By defaul
 omp plugin install judge-dispatch@wows-omp-plugins
 ```
 
-Requires OMP 18.5.1 or newer. Automatic routing needs a native judgment model behind the `judge` role (see [Quick start](#quick-start)); explicit per-task model binding does not. Restart the session after installing.
+Requires OMP 18.5.1 or newer. Automatic routing needs a native judgment model behind the `judge` role (see [Quick start](#quick-start)); pinning one task's model does not. Restart the session after installing.
 
 ## Quick start
 
@@ -72,22 +72,21 @@ A difficulty rating below `minimumConfidence` counts as demanding, so the budget
 
 The chosen model goes to the front of the spawn's selectors and the rest of the pool becomes its retry chain.
 
-### Explicit model role or model for one task
+### Pin a model role or model for one task
 
-To use a different model role without creating a new agent type, ask the parent agent to call `judge_dispatch_model`, wait for its successful result, then dispatch a named `task` in the next tool round:
+To run one subagent on another model role without creating a new agent type, tell the parent agent so, for example "run the review on the abliterated role". The plugin adds one line to the system prompt that teaches the parent to write the task item's agent as `<agent>@<role>`:
 
 ```text
-judge_dispatch_model({"name":"ReviewLogic","role":"abliterated"})
-task({"name":"ReviewLogic","agent":"deep-low","task":"Review the logic"})
+task({"name":"ReviewLogic","agent":"deep-low@abliterated","task":"Review the logic"})
 ```
 
-The role must exist in OMP's `modelRoles`. Alternatively, use `{"name":"ReviewLogic","model":"provider/model:thinking"}` for a concrete model. Supply exactly one of `role` and `model`. The binding is session-local, matches one exact task name (without dots), and is claimed by the next matching dispatch, then consumed at spawn. In a batch, bound names must be unique. The agent type remains eligible for normal routing; `judgeEffort` still applies. Explicit binding bypasses only judge **model selection** and replaces the original agent's model pool with the selected role's primary model and configured fallback selectors. It works even when the `judge` role is unavailable. Pending bindings survive switching away and back within the process, but cannot be used on a conversation branch that does not contain their binding call; bind again on that branch.
+`<agent>@<provider>/<model>` pins one concrete model instead, such as `scout@provider/model:high`. The role must exist in OMP's `modelRoles`; a concrete model must resolve to an enabled model with credentials.
 
-Use `judge_dispatch_model({"op":"clear","name":"ReviewLogic"})` to remove an unused binding. A task call that ends without spawning or leaving a background job returns its binding for retry. Clearing never changes a task already dispatched with an explicit model. An unbound retry is refused while an earlier bound dispatch has not started; if the background task failed or was cancelled, bind the name again before retrying. To prevent queued tasks or reused names from taking the wrong binding, the plugin gives each bound dispatch a unique name such as `ReviewLogic_jd0123456789ab`; use the actual child ID returned by OMP for later interaction.
+The plugin removes the pin before OMP runs the call, so the child runs as `deep-low` on the role's primary model, with that role's fallback chain (or the `default` chain when the role has none). A pin bypasses only judge **model selection**: agent routing and `judgeEffort` still apply, and pins work when the `judge` role is unavailable. Task `effort` still takes precedence over a selector's thinking suffix, as everywhere in OMP.
 
-Task `effort`, including a judge-routed effort, takes precedence over a model selector's thinking suffix under OMP's normal rules. Binding `provider/model:high` does not force high thinking if the task uses `effort: "lo"`.
+A pinned child gets a unique id such as `ReviewLogic_jd0123456789ab`, so no queued or later task that reuses the name can take its model. OMP shows and keeps the rewritten call, so the plugin also tells the parent agent which pins it applied; the task result returns the new id, and the parent should address the child by it.
 
-The plugin rejects unknown roles, unresolved models, conflicting bindings, ambiguous names and workflow-owned tasks rather than silently using the agent's original model. During an approved Prometheus plan, explicit binding is unavailable. This is a model-list override, not an OMP role-identity change: a concrete model without its own fallback chain may still inherit the original agent's runtime retry chain. When a role has an empty chain but the original role has fallbacks, the spawn is refused rather than borrowing that chain. OMP can still apply its own auth fallback or higher-priority retry rules. See [the reference](REFERENCE.md#from-explicit-binding-to-spawn).
+A pin that cannot apply refuses the whole call and says why, rather than running on the agent's own model: an unknown role, a model that does not resolve, a workflow-owned agent such as `metis`, or any pin while an approved Prometheus plan executes. Without this plugin, OMP itself rejects `deep-low@abliterated` as an unknown agent. A pin replaces the model list, not OMP's role identity, so OMP's credential fallback and higher-priority retry rules still apply. A pin with no fallback chain of its own is refused at spawn if OMP would otherwise retry it on the agent's original role chain. See [the reference](REFERENCE.md#from-a-pinned-agent-to-spawn).
 
 ### What you see
 
@@ -140,6 +139,8 @@ Routing and model selection work the same in RPC, ACP editors, the SDK and headl
 ## Known limitations
 
 - `eval.agent()` and `workpool()` children are not routed, because OMP's `before_subagent_spawn` hook can change a child's model but not its agent type.
+- Only `task` items can pin a model: OMP checks the agent name of an `eval.agent()` or `workpool()` child before any plugin hook runs, so `scout@abliterated` fails there as an unknown agent.
+- A pinned child's id carries a `_jd…` suffix instead of the name you gave it.
 - OMP folds consecutive status lines into one, so several `task` calls in one turn may show only the last line.
 - Model selection needs scores and prices from OMP's model registry; a primary model without a score keeps its configured model.
 
