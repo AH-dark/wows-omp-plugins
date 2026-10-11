@@ -12,7 +12,7 @@
 
 ### Features
 
-* **judge-dispatch:** bind named subagents to explicit model roles ([ee64dc8](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/ee64dc83d05d292c111670cf940aa6c6e2b1025b))
+* **judge-dispatch:** pin one task's model role or model by writing its agent as `<agent>@<role>` or `<agent>@<provider>/<model>`; the pin skips judge model selection, keeps agent and effort routing, and refuses the call instead of falling back to the agent's own model ([ee64dc8](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/ee64dc83d05d292c111670cf940aa6c6e2b1025b), [c357bd8](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/c357bd80e12bb996319ab70bd526ba72251d616c))
 
 ## [0.6.1](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/judge-dispatch@0.6.0...judge-dispatch@0.6.1) (2026-10-10)
 
