@@ -12,7 +12,7 @@ Lets OMP's `judge` model role decide how `task` calls spawn subagents. By defaul
 omp plugin install judge-dispatch@wows-omp-plugins
 ```
 
-Requires OMP 18.5.1 or newer and a native judgment model behind the `judge` role (see [Quick start](#quick-start)). Restart the session after installing.
+Requires OMP 18.5.1 or newer. Automatic routing needs a native judgment model behind the `judge` role (see [Quick start](#quick-start)); explicit per-task model binding does not. Restart the session after installing.
 
 ## Quick start
 
@@ -56,7 +56,7 @@ With `judgeEffort` on, the judge rates how open-ended the assignment is (`routin
 
 With `selectModel` on, the plugin picks each child's model from the agent's model pool: its `task.agentModelOverrides` entry or frontmatter `model` list, plus the fallback chains of the roles named there. The first entry is the primary model. Models without credentials, a score or a price are never chosen.
 
-A `task` call that sets `model` keeps it; agent and effort routing still apply.
+On OMP versions whose `task` tool exposes a `model` field, a model supplied there takes precedence; agent and effort routing still apply.
 
 `modelBudget` sets how far below the primary the choice may go. Stronger models and the primary itself are always eligible.
 
@@ -71,6 +71,23 @@ A difficulty rating below `minimumConfidence` counts as demanding, so the budget
 `modelPick` decides among eligible models. `best` takes the highest fit × provider weight, so a low budget widens the choice without forcing a cheaper model. `weighted` draws one at random, favoring cheaper models more at lower budgets, which spreads work across the pool over many calls. `providerWeights` such as `openai=2` make a provider's models proportionally more likely to win, but never make an ineligible model eligible.
 
 The chosen model goes to the front of the spawn's selectors and the rest of the pool becomes its retry chain.
+
+### Explicit model role or model for one task
+
+To use a different model role without creating a new agent type, ask the parent agent to call `judge_dispatch_model`, wait for its successful result, then dispatch a named `task` in the next tool round:
+
+```text
+judge_dispatch_model({"name":"ReviewLogic","role":"abliterated"})
+task({"name":"ReviewLogic","agent":"deep-low","task":"Review the logic"})
+```
+
+The role must exist in OMP's `modelRoles`. Alternatively, use `{"name":"ReviewLogic","model":"provider/model:thinking"}` for a concrete model. Supply exactly one of `role` and `model`. The binding is session-local, matches one exact task name (without dots), and is claimed by the next matching dispatch, then consumed at spawn. In a batch, bound names must be unique. The agent type remains eligible for normal routing; `judgeEffort` still applies. Explicit binding bypasses only judge **model selection** and replaces the original agent's model pool with the selected role's primary model and configured fallback selectors. It works even when the `judge` role is unavailable. Pending bindings survive switching away and back within the process, but cannot be used on a conversation branch that does not contain their binding call; bind again on that branch.
+
+Use `judge_dispatch_model({"op":"clear","name":"ReviewLogic"})` to remove an unused binding. A task call that ends without spawning or leaving a background job returns its binding for retry. Clearing never changes a task already dispatched with an explicit model. An unbound retry is refused while an earlier bound dispatch has not started; if the background task failed or was cancelled, bind the name again before retrying. To prevent queued tasks or reused names from taking the wrong binding, the plugin gives each bound dispatch a unique name such as `ReviewLogic_jd0123456789ab`; use the actual child ID returned by OMP for later interaction.
+
+Task `effort`, including a judge-routed effort, takes precedence over a model selector's thinking suffix under OMP's normal rules. Binding `provider/model:high` does not force high thinking if the task uses `effort: "lo"`.
+
+The plugin rejects unknown roles, unresolved models, conflicting bindings, ambiguous names and workflow-owned tasks rather than silently using the agent's original model. During an approved Prometheus plan, explicit binding is unavailable. This is a model-list override, not an OMP role-identity change: a concrete model without its own fallback chain may still inherit the original agent's runtime retry chain. When a role has an empty chain but the original role has fallbacks, the spawn is refused rather than borrowing that chain. OMP can still apply its own auth fallback or higher-priority retry rules. See [the reference](REFERENCE.md#from-explicit-binding-to-spawn).
 
 ### What you see
 

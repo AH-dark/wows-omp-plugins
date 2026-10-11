@@ -150,13 +150,16 @@ their assignment explicitly says so. Prompts that dispatch children whose work
 is accepted on their own evidence (Atlas rows, audit fixers, ultrawork lanes)
 must name the checks in every assignment.
 
-`judge-dispatch` routes only by rewriting `task` tool calls. OMP's
-`before_subagent_spawn` hook can swap a child's model but not its agent type, so
-`eval.agent()` and `workpool()` stay unrouted. An earlier "enhanced" mode coded
-against a hypothetical routing API that no omp release ever shipped, and it was
-removed. Build on a host surface only once a released omp exposes it. A `task`
-item that sets its own `model` (omp 18.5.0+) is pinned: the plugin still routes
-its agent and effort but never replaces or re-reports that model.
+`judge-dispatch` routes agent type and effort only by rewriting `task` tool calls. OMP's
+`before_subagent_spawn` hook can replace a child's model patterns but not its agent
+type or role identity. Explicit `judge_dispatch_model` bindings apply to one named
+`task` spawn, including when the judge is unavailable; agent and effort routing
+remain subject to the existing workflow boundaries. `eval.agent()` and
+`workpool()` remain unrouted. OMP 18.5.0 introduced a per-item `task.model` field,
+but 18.8.2 removed it; older hosts keep that field pinned when present. The
+plugin never changes the user's global model roles or fallback settings.
+An earlier "enhanced" mode used a hypothetical routing API that no OMP release
+shipped and was removed. Build only on host surfaces exposed by released OMP.
 
 It derives its legal agent set from the live `task` tool description and reads
 its settings on every call from `ctx.cwd` (never `process.cwd()`), because plugin
@@ -173,8 +176,9 @@ raise the CI matrix entry and documented requirements instead of adding a shim.
 Judging goes through OMP's `judge` role (`resolveJudge`); the plugin keeps no
 credentials or provider settings of its own. It judges only when the chain's
 first usable candidate is native (a judgment API, calibrated confidence), never
-calls a chat-model fallback, and fails open everywhere: a missing native judge
-keeps the requested agent and warns once per session.
+calls a chat-model fallback. Automatic routing fails open: a missing native judge
+keeps the requested agent and warns once per session. Explicit binding errors
+must instead surface to the caller; do not silently discard a requested override.
 
 ## Host prompt text is not a byte channel
 

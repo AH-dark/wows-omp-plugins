@@ -63,6 +63,8 @@ export interface ParsedTaskRoute {
   context?: string;
   requestedAgent?: string;
   modelPinned: boolean;
+  /** Target of an explicit `judge_dispatch_model` binding (`@role` or `provider/model`); unrelated to the removed host `task.model` field. */
+  explicitModel?: string;
   /** Spawn label the caller supplied, if any. */
   name?: string;
 }
@@ -94,6 +96,8 @@ export interface RouteChoice {
   effortConfidence?: number;
   /** Spawn label to write when the call has none, so the spawn hook can find this route's model decision. */
   name?: string;
+  /** Unique spawn name replacing the caller's name on an explicitly bound item. */
+  spawnName?: string;
   model?: ModelChoice;
 }
 
@@ -232,13 +236,14 @@ function rewriteTaskItem(
 ): Record<string, unknown> {
   const agentChanged = choice?.agent !== undefined && choice.agent !== requestedAgent;
   const effortChanged = choice?.effort !== undefined && choice.effort !== item.effort;
+  const renamed = choice?.spawnName !== undefined && choice.spawnName !== item.name;
   const nameAdded = choice?.name !== undefined && optionalNonEmptyString(item.name) === undefined;
-  if (!agentChanged && !effortChanged && !nameAdded) return item;
+  if (!agentChanged && !effortChanged && !renamed && !nameAdded) return item;
   return {
     ...item,
     ...(agentChanged ? { agent: choice.agent } : {}),
     ...(effortChanged ? { effort: choice.effort } : {}),
-    ...(nameAdded ? { name: choice.name } : {}),
+    ...(renamed ? { name: choice.spawnName } : nameAdded ? { name: choice.name } : {}),
   };
 }
 
@@ -283,26 +288,23 @@ export function serializeCandidate(candidate: RoutingCandidate): SerializedCandi
   };
 }
 
-/** Workflow-owned review roles retain their own agent and effort policy. */
+/** Workflow-owned review roles retain their own agent, effort, and model policy. */
 const RESERVED_AGENT_PREFIX = "audit-";
 const RESERVED_AGENT_NAMES: Record<string, true> = { metis: true, momus: true, oracle: true };
+
+export function isWorkflowOwnedAgent(name: string): boolean {
+  return name.startsWith(RESERVED_AGENT_PREFIX) || Object.hasOwn(RESERVED_AGENT_NAMES, name);
+}
 
 /** Candidates consistent with the requested authority, or undefined when access is unresolved. */
 export function routableCandidates<T extends { name: string; readOnly: boolean }>(
   requestedAgent: string | undefined,
   candidates: readonly T[],
 ): T[] | undefined {
-  if (requestedAgent && (requestedAgent.startsWith(RESERVED_AGENT_PREFIX) || Object.hasOwn(RESERVED_AGENT_NAMES, requestedAgent))) {
-    return undefined;
-  }
+  if (requestedAgent && isWorkflowOwnedAgent(requestedAgent)) return undefined;
   const requested = requestedAgent ? candidates.find((candidate) => candidate.name === requestedAgent) : undefined;
   if (requestedAgent && !requested) return undefined;
-  return candidates.filter(
-    (candidate) =>
-      !candidate.name.startsWith(RESERVED_AGENT_PREFIX) &&
-      !Object.hasOwn(RESERVED_AGENT_NAMES, candidate.name) &&
-      (!requested?.readOnly || candidate.readOnly),
-  );
+  return candidates.filter((candidate) => !isWorkflowOwnedAgent(candidate.name) && (!requested?.readOnly || candidate.readOnly));
 }
 
 /** Accept only a legal, sufficiently confident answer from a native judgment transport. */
@@ -444,7 +446,7 @@ export class PendingSpawnRoutes {
 
   /** Consume the decision for a spawn of `agent`, if one is unambiguously pending under this key. */
   take(spawnKey: string, agent: string): PendingSpawnRoute | undefined {
-    const leaf = spawnKey.slice(spawnKey.lastIndexOf(".") + 1);
+    const leaf = taskSpawnName(spawnKey);
     for (const name of [leaf, leaf.replace(SPAWN_SUFFIX_PATTERN, "")]) {
       if (!this.#routes.has(name)) continue;
       const route = this.#routes.get(name);
@@ -453,5 +455,166 @@ export class PendingSpawnRoutes {
       return route;
     }
     return undefined;
+  }
+}
+
+/**
+ * The task name a spawn key stands for: the host nests ids under parents
+ * (`<parent>.<name>`), trims a name before allocating it, and labels
+ * unallocated synchronous spawns with the raw name.
+ */
+function taskSpawnName(key: string): string {
+  return key.slice(key.lastIndexOf(".") + 1).trim();
+}
+
+export type ExplicitModelSource = { role: string } | { model: string };
+
+/** Model patterns an explicit binding applies at spawn. */
+export interface ExplicitSpawnModel {
+  patterns: string[];
+  note: string;
+  /** Bound to a role, so a lone pattern must not inherit the original role's retry chain. */
+  role: boolean;
+}
+
+/** A requested binding and the `judge_dispatch_model` call that made it. */
+export interface RequestedBinding {
+  source: ExplicitModelSource;
+  /** Its tool result marks the conversation branch the binding belongs to. */
+  callId: string;
+}
+
+/**
+ * One session's requested explicit model bindings, keyed by the exact task
+ * name the caller will use.
+ *
+ * Every `tool_call` hook of an assistant message runs before any of its tools
+ * executes, so a binding made in one tool round is invisible to a task in the
+ * same round; the round sets keep both orders of that mix fail-closed.
+ */
+export class ExplicitModelBindings {
+  #requested = new Map<string, RequestedBinding>();
+  /** Task names that binding calls of the current tool round target. */
+  #roundBinds = new Set<string>();
+  /** Task names the current tool round dispatched without a binding; a binding call there arrives too late for them. */
+  #roundTasks = new Set<string>();
+
+  /** Start a tool round with the task names its assistant message's binding calls target. */
+  startRound(boundNames: readonly string[]): void {
+    this.#roundBinds = new Set(boundNames.map((name) => name.trim()));
+    this.#roundTasks.clear();
+  }
+
+  /** Record a binding call seen at `tool_call` time, for rounds that skipped the assistant message hook. */
+  announce(name: string): void {
+    this.#roundBinds.add(name.trim());
+  }
+
+  /** Why a task item named `name` cannot be dispatched in this round, if it cannot. */
+  dispatchConflict(name: string): string | undefined {
+    if (!this.#roundBinds.has(name)) return undefined;
+    return `Call judge_dispatch_model for ${name} alone and wait for its result, then dispatch task ${name} in a later tool round`;
+  }
+
+  /** Note task names this round dispatched without a binding. */
+  dispatched(names: readonly string[]): void {
+    for (const name of names) this.#roundTasks.add(name);
+  }
+
+  requested(name: string): RequestedBinding | undefined {
+    return this.#requested.get(name);
+  }
+
+  /** Request a binding; returns why it was refused, if it was. */
+  bind(name: string, binding: RequestedBinding): string | undefined {
+    if (this.#requested.has(name)) return `Task ${name} already has a pending model binding`;
+    if (this.#roundTasks.has(name)) {
+      return `Task ${name} was already dispatched in this tool round without a binding; call judge_dispatch_model alone, wait for its result, then dispatch the task in a later round`;
+    }
+    if (this.#requested.size >= PENDING_SPAWN_LIMIT) return "Too many pending explicit model bindings";
+    this.#requested.set(name, binding);
+    return undefined;
+  }
+
+  clear(name: string): boolean {
+    return this.#requested.delete(name);
+  }
+
+  /** Return a binding whose task call settled without spawning, unless a newer binding took the name. */
+  restore(name: string, binding: RequestedBinding): void {
+    if (!this.#requested.has(name)) this.#requested.set(name, binding);
+  }
+}
+
+interface ExplicitClaim {
+  model: ExplicitSpawnModel;
+  name: string;
+  binding: RequestedBinding;
+  /** The accepted task call; its settled result returns the claim when no child will spawn. */
+  toolCallId: string;
+  owner: ExplicitModelBindings;
+}
+
+/** Separates a bound item's own name from the unique token of its spawn name. */
+const EXPLICIT_SPAWN_MARKER = "_jd";
+
+/**
+ * Bound task items awaiting their spawns. Each accepted item is renamed to a
+ * unique spawn name, so only that item's spawn can carry the key: OMP's `-N`
+ * collision suffix, other tasks reusing the caller's name, and a session switch
+ * before a background job starts can neither redirect nor drop the binding.
+ * One registry serves every session of the plugin instance, because spawns
+ * of an earlier session's background jobs still reach it.
+ */
+export class ExplicitSpawnClaims {
+  #claims = new Map<string, ExplicitClaim>();
+
+  /** Move `owner`'s requested bindings to one accepted task call; returns each item's unique spawn name. */
+  claim(
+    owner: ExplicitModelBindings,
+    toolCallId: string,
+    items: readonly { name: string; binding: RequestedBinding; model: ExplicitSpawnModel }[],
+  ): string[] {
+    if (this.#claims.size + items.length > PENDING_SPAWN_LIMIT) throw new Error("Too many explicitly bound tasks are awaiting spawn");
+    return items.map(({ name, binding, model }) => {
+      let spawnName = "";
+      while (!spawnName || this.#claims.has(spawnName)) {
+        spawnName = `${name}${EXPLICIT_SPAWN_MARKER}${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+      }
+      owner.clear(name);
+      this.#claims.set(spawnName, { model, name, binding, toolCallId, owner });
+      return spawnName;
+    });
+  }
+
+  /** Whether a task item named `rawName` would produce a pending claim's spawn key. */
+  reserved(rawName: string): boolean {
+    const leaf = taskSpawnName(rawName);
+    return this.#claims.has(leaf) || this.#claims.has(leaf.replace(SPAWN_SUFFIX_PATTERN, ""));
+  }
+
+  /** Whether `owner` dispatched a task with its binding for `name` that has not started yet. */
+  awaiting(owner: ExplicitModelBindings, name: string): boolean {
+    for (const claim of this.#claims.values()) if (claim.owner === owner && claim.name === name) return true;
+    return false;
+  }
+
+  /** Return the claims of a task call that settled without a background job: none of them will spawn. */
+  settle(toolCallId: string): void {
+    for (const [spawnName, claim] of this.#claims) {
+      if (claim.toolCallId !== toolCallId) continue;
+      this.#claims.delete(spawnName);
+      claim.owner.restore(claim.name, claim.binding);
+    }
+  }
+
+  /** Consume the claim a spawn key belongs to. */
+  take(spawnKey: string): ExplicitSpawnModel | undefined {
+    const leaf = taskSpawnName(spawnKey);
+    const spawnName = this.#claims.has(leaf) ? leaf : leaf.replace(SPAWN_SUFFIX_PATTERN, "");
+    const claim = this.#claims.get(spawnName);
+    if (!claim) return undefined;
+    this.#claims.delete(spawnName);
+    return claim.model;
   }
 }

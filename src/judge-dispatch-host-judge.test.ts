@@ -12,13 +12,31 @@ const THIS_FILE = fileURLToPath(import.meta.url);
 const PLUGIN_URL = pathToFileURL(join(dirname(THIS_FILE), "../plugins/judge-dispatch/src/index.ts")).href;
 const HOST_KEY = ["host", "typesafe", "key"].join("-");
 
+/** One hook-level action, replayed in order after a session's other fields; each pushes one entry to `steps`. */
+type HookStep =
+  | { bind: { name: string; role?: string; model?: string; op?: "clear" } }
+  | { assistant: { name: string; arguments: Record<string, unknown> }[] }
+  | { call: Record<string, unknown>; id: string; tool?: string }
+  | { end: string; result: Record<string, unknown>; isError?: boolean }
+  /**
+   * The spawn key comes from `spawn.spawnKey`, or is allocated through a real session-scoped AgentOutputManager
+   * as background task jobs do: for the literal `allocate` name, or for item `item` of call `from` as dispatched.
+   */
+  | { spawn: Record<string, unknown>; allocate?: string; from?: string; item?: number }
+  | { sessionId: string }
+  /** Appends entries to the active branch, or with `replace` moves to another branch holding only them. */
+  | { branch: unknown[]; replace?: boolean };
+
 interface SessionSpec {
   project: string;
   calls: number;
+  bindings?: { name: string; role?: string; model?: string }[];
+  clearBindings?: string[];
   description?: string;
   inputs?: Record<string, unknown>[];
   branch?: unknown[];
   spawns?: Record<string, unknown>[];
+  steps?: HookStep[];
 }
 
 interface ChildScenario {
@@ -26,6 +44,10 @@ interface ChildScenario {
   response: "success" | "unauthorized" | "network-error";
   agentChoice?: string;
   hostKey?: string;
+  explicitRole?: boolean;
+  emptyRoleChain?: boolean;
+  defaultChain?: string[];
+  disabledProviders?: string[];
   modelPool?: string[];
 }
 
@@ -44,7 +66,9 @@ interface SessionReport {
   working: unknown[];
   /** Custom message types that remain after the plugin's `context` hook, given a legacy route record plus one ordinary message. */
   modelView: unknown[];
+  bindingResults: unknown[];
   spawnResults: unknown[];
+  steps: unknown[];
 }
 
 interface ChildReport {
@@ -102,7 +126,7 @@ async function executeChildScenario(scenario: ChildScenario): Promise<ChildRepor
   try {
     if (scenario.hostKey === undefined) delete process.env.TYPESAFE_API_KEY;
     else process.env.TYPESAFE_API_KEY = scenario.hostKey;
-    if (scenario.modelPool) process.env.OPENAI_API_KEY = "fixture-openai-key";
+    if (scenario.modelPool || scenario.explicitRole) process.env.OPENAI_API_KEY = "fixture-openai-key";
 
     const agentDir = process.env.PI_CODING_AGENT_DIR as string;
     await mkdir(agentDir, { recursive: true });
@@ -112,6 +136,10 @@ async function executeChildScenario(scenario: ChildScenario): Promise<ChildRepor
     const { ModelRegistry } = await import("@oh-my-pi/pi-coding-agent/config/model-registry");
     const { Settings, withActiveSettings } = await import("@oh-my-pi/pi-coding-agent/config/settings");
     const { discoverAuthStorage } = await import("@oh-my-pi/pi-coding-agent/sdk");
+    const { cfgDisabledProviders, cfgModelRoles } = await import("@oh-my-pi/pi-coding-agent/config/model-settings");
+    const { cfgRetryFallbackChains } = await import("@oh-my-pi/pi-coding-agent/session/settings");
+    const { AgentOutputManager } = await import("@oh-my-pi/pi-coding-agent/task/output-manager");
+    const { Type } = await import("@oh-my-pi/omptype/typebox");
     const { cfgTaskAgentModelOverrides } = await import("@oh-my-pi/pi-coding-agent/task/settings");
     // This runtime-selected absolute URL keeps the child fixture on the same plugin source as the parent checkout.
     const { default: registerJudgeDispatch } = await import(PLUGIN_URL);
@@ -119,10 +147,21 @@ async function executeChildScenario(scenario: ChildScenario): Promise<ChildRepor
     const sessionReports: SessionReport[] = [];
     for (const [sessionIndex, session] of scenario.sessions.entries()) {
       const settings = await Settings.loadIsolated({ cwd: session.project, agentDir });
+      if (scenario.explicitRole) {
+        cfgModelRoles.override(settings, { abliterated: "openai/gpt-5-mini", task: "openai/gpt-5" });
+        cfgRetryFallbackChains.override(settings, {
+          abliterated: scenario.emptyRoleChain ? [] : ["openai/gpt-5"],
+          task: ["openai/gpt-5-mini"],
+          ...(scenario.defaultChain ? { default: scenario.defaultChain } : {}),
+        });
+      }
+      if (scenario.disabledProviders) cfgDisabledProviders.override(settings, scenario.disabledProviders);
       if (scenario.modelPool) cfgTaskAgentModelOverrides.override(settings, { task: scenario.modelPool, scout: scenario.modelPool });
       const registry = new ModelRegistry(await discoverAuthStorage(agentDir), join(agentDir, "models.yml"), { settings });
       const handlers = new Map<string, TestHandler[]>();
+      let bindingTool: { execute: (...args: unknown[]) => Promise<unknown> } | undefined;
       const report: SessionReport = {
+        bindingResults: [],
         results: [],
         warnings: [],
         notifications: [],
@@ -130,9 +169,17 @@ async function executeChildScenario(scenario: ChildScenario): Promise<ChildRepor
         working: [],
         modelView: [],
         spawnResults: [],
+        steps: [],
       };
+      // The host reuses one session manager across /new and /resume; a step may change its session id or branch in place.
+      let sessionId = `host-judge-session-${sessionIndex}`;
+      let branch: unknown[] = [...(session.branch ?? [])];
 
       const api = {
+        typebox: { Type },
+        registerTool(tool: { execute: (...args: unknown[]) => Promise<unknown> }) {
+          bindingTool = tool;
+        },
         logger: {
           warn(message: unknown, details?: unknown) {
             report.warnings.push(details === undefined ? message : [message, details]);
@@ -156,8 +203,8 @@ async function executeChildScenario(scenario: ChildScenario): Promise<ChildRepor
           },
         },
         sessionManager: {
-          getSessionId: () => `host-judge-session-${sessionIndex}`,
-          getBranch: () => session.branch ?? [],
+          getSessionId: () => sessionId,
+          getBranch: () => branch,
           getLeafId: () => `host-judge-leaf-${sessionIndex}`,
           appendModelUsage(entry: unknown) {
             report.usage.push(entry);
@@ -173,6 +220,20 @@ async function executeChildScenario(scenario: ChildScenario): Promise<ChildRepor
       };
 
       registerJudgeDispatch(api);
+      let bindCalls = 0;
+      // The host persists every tool result on the active branch before the next tool round runs its hooks.
+      const executeBind = async (params: Record<string, unknown>) => {
+        if (!bindingTool) throw new Error("judge-dispatch binding tool was not registered");
+        const tool = bindingTool;
+        const callId = `host-judge-bind-${bindCalls++}`;
+        const result = await withActiveSettings(settings, () =>
+          tool.execute(callId, params, new AbortController().signal, () => {}, context),
+        );
+        branch.push({ type: "message", message: { role: "toolResult", toolCallId: callId, toolName: "judge_dispatch_model" } });
+        return result;
+      };
+      for (const binding of session.bindings ?? []) report.bindingResults.push(await executeBind(binding));
+      for (const name of session.clearBindings ?? []) report.bindingResults.push(await executeBind({ name, op: "clear" }));
 
       for (let call = 0; call < session.calls; call += 1) {
         const input = session.inputs?.[call] ?? { task: "Implement the requested repository change", agent: "task" };
@@ -192,6 +253,63 @@ async function executeChildScenario(scenario: ChildScenario): Promise<ChildRepor
         report.spawnResults.push(
           await onlyHandler("before_subagent_spawn")({ type: "before_subagent_spawn", invocationKind: "task", ...spawn }, context),
         );
+      }
+      const outputManager = new AgentOutputManager(() => null);
+      // Item names each call step dispatched after the plugin's rewrite, for spawn steps that follow it.
+      const dispatchedNames = new Map<string, unknown[]>();
+      // Each session id keeps its own branch, as the host restores a session's tree when switching back to it.
+      const branches = new Map<string, unknown[]>();
+      for (const step of session.steps ?? []) {
+        if ("bind" in step) {
+          report.steps.push(await executeBind(step.bind));
+        } else if ("assistant" in step) {
+          const content = step.assistant.map((call, index) => ({ type: "toolCall", id: `assistant-${index}`, ...call }));
+          report.steps.push(
+            await onlyHandler("assistant_message")({ type: "assistant_message", message: { role: "assistant", content } }, context),
+          );
+        } else if ("call" in step) {
+          const result = await onlyHandler("tool_call")(
+            { type: "tool_call", toolCallId: step.id, toolName: step.tool ?? "task", input: step.call },
+            context,
+          );
+          const sent =
+            result && typeof result === "object" && "input" in result && result.input && typeof result.input === "object"
+              ? result.input
+              : step.call;
+          const items: unknown[] = "tasks" in sent && Array.isArray(sent.tasks) ? sent.tasks : [sent];
+          dispatchedNames.set(
+            step.id,
+            items.map((item) => (item && typeof item === "object" && "name" in item ? item.name : undefined)),
+          );
+          report.steps.push(result);
+        } else if ("end" in step) {
+          const end = {
+            type: "tool_execution_end",
+            toolCallId: step.end,
+            toolName: "task",
+            result: step.result,
+            isError: step.isError ?? false,
+          };
+          report.steps.push(await onlyHandler("tool_execution_end")(end, context));
+        } else if ("spawn" in step) {
+          const dispatched = step.from === undefined ? undefined : dispatchedNames.get(step.from)?.[step.item ?? 0];
+          if (step.from !== undefined && typeof dispatched !== "string") throw new Error(`call ${step.from} dispatched no item name`);
+          const allocated = step.allocate ?? (typeof dispatched === "string" ? dispatched.trim() : undefined);
+          const spawnKey = allocated === undefined ? step.spawn.spawnKey : await outputManager.allocate(allocated);
+          const result = await onlyHandler("before_subagent_spawn")(
+            { type: "before_subagent_spawn", invocationKind: "task", ...step.spawn, spawnKey },
+            context,
+          );
+          report.steps.push({ spawnKey, result: result ?? null });
+        } else if ("sessionId" in step) {
+          branches.set(sessionId, branch);
+          sessionId = step.sessionId;
+          branch = branches.get(sessionId) ?? [];
+          report.steps.push(null);
+        } else {
+          branch = step.replace ? [...step.branch] : [...branch, ...step.branch];
+          report.steps.push(null);
+        }
       }
       const filtered = (await onlyHandler("context")(
         {
@@ -272,6 +390,18 @@ async function registerTests(): Promise<void> {
   const { describe, expect, setDefaultTimeout, test } = await import("bun:test");
   // Every test boots a real host in a child process; the 5s default is too tight when the suite runs in parallel.
   setDefaultTimeout(30_000);
+  const namedTask = (name: string) => ({ task: `Review ${name}`, agent: "task", name });
+  const taskSpawn = { agent: "task", modelRole: "task", patterns: ["openai/gpt-5"] };
+  const roleSpawn = { model: ["openai/gpt-5-mini", "openai/gpt-5"], note: "judge-dispatch explicit role @abliterated" };
+  const bound = expect.objectContaining({ content: [{ type: "text", text: expect.stringContaining("Bound task") }] });
+  const refused = (text: string) =>
+    expect.objectContaining({ isError: true, content: [{ type: "text", text: expect.stringContaining(text) }] });
+  const blocked = (reason: string) => expect.objectContaining({ block: true, reason: expect.stringContaining(reason) });
+  const prometheus = (phase: string) => [{ type: "custom", customType: "wows-omp-omo-prometheus.state", data: { phase } }];
+  const blockedResult = { content: [{ type: "text", text: "Blocked by another extension" }], details: { isError: true } };
+  // A bound item runs under its own name plus a unique token, which its spawn key must carry.
+  const spawned = (name: string) => expect.stringMatching(new RegExp(`^${name}_jd[0-9a-f]{12}$`));
+  const renamed = (name: string) => ({ input: { ...namedTask(name), name: spawned(name) } });
 
   describe.serial("judge-dispatch through the host judge role", () => {
     test("a native judge that is not Jev routes task calls and journals usage", async () => {
@@ -410,6 +540,584 @@ async function registerTests(): Promise<void> {
           modelPool,
         });
         expect(report.sessions[0]?.spawnResults).toEqual([null]);
+      });
+    });
+
+    test("a named task uses an unrelated model role without judge model selection", async () => {
+      const task = namedTask("ReviewLogic");
+      const scoutSpawn = { ...taskSpawn, agent: "scout" };
+      await withProjects([{ selectModel: true, modelBudget: "minimum", judgeEffort: true }], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "ReviewLogic", role: "abliterated" } },
+                { call: task, id: "bound" },
+                { spawn: scoutSpawn, from: "bound" },
+                { spawn: { ...scoutSpawn, spawnKey: "parent.ReviewLogic" } },
+              ],
+            },
+          ],
+          response: "success",
+          hostKey: HOST_KEY,
+          modelPool: ["openai/gpt-5", "openai/gpt-5-mini"],
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          bound,
+          { input: { ...task, agent: "scout", effort: "hi", name: spawned("ReviewLogic") } },
+          { spawnKey: spawned("ReviewLogic"), result: roleSpawn },
+          { spawnKey: "parent.ReviewLogic", result: null },
+        ]);
+        expect(report.requests.map((request) => Object.keys(JSON.parse(request.body).questions))).toEqual([["agent", "difficulty"]]);
+        expect(report.sessions[0]?.notifications).toEqual([
+          { message: "judge-dispatch  task → scout (0.99) · effort default → hi (0.99) · model bound to @abliterated", level: "info" },
+        ]);
+      });
+    });
+
+    test("an explicit model works without the judge and invalid or duplicate bindings do not reroute", async () => {
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "One", role: "missing-role" } },
+                { bind: { name: "One", role: "abliterated" } },
+                { bind: { name: "One", model: "openai/gpt-5-mini" } },
+                { bind: { name: "Direct", model: "openai/gpt-5-mini" } },
+                { call: namedTask("One"), id: "one" },
+                { call: namedTask("Direct"), id: "direct" },
+                { spawn: taskSpawn, from: "one" },
+                { spawn: taskSpawn, from: "direct" },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          refused("missing-role"),
+          bound,
+          refused("already has a pending model binding"),
+          bound,
+          renamed("One"),
+          renamed("Direct"),
+          { spawnKey: spawned("One"), result: roleSpawn },
+          {
+            spawnKey: spawned("Direct"),
+            result: { model: ["openai/gpt-5-mini"], note: "judge-dispatch explicit model openai/gpt-5-mini" },
+          },
+        ]);
+        expect(report.requests).toEqual([]);
+      });
+    });
+
+    test("duplicate and workflow-owned items cannot consume a binding, and a same-named retry waits for the bound spawn", async () => {
+      await withProjects([{}], async ([project]) => {
+        const item = namedTask("ReviewLogic");
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "ReviewLogic", role: "abliterated" } },
+                { call: { context: "shared", tasks: [item, item] }, id: "duplicate" },
+                { call: { ...item, agent: "metis" }, id: "workflow" },
+                { call: item, id: "bound" },
+                { call: item, id: "retry" },
+                { spawn: taskSpawn, from: "bound" },
+                { call: item, id: "unbound" },
+                { spawn: taskSpawn, from: "unbound" },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          bound,
+          blocked("unique"),
+          blocked("workflow-owned"),
+          renamed("ReviewLogic"),
+          blocked("has not started"),
+          { spawnKey: spawned("ReviewLogic"), result: roleSpawn },
+          null,
+          { spawnKey: "ReviewLogic", result: null },
+        ]);
+      });
+    });
+
+    test("an empty target role chain never silently inherits the old role chain", async () => {
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "ReviewLogic", role: "abliterated" } },
+                { call: namedTask("ReviewLogic"), id: "bound" },
+                { spawn: taskSpawn, from: "bound" },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+          emptyRoleChain: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          bound,
+          renamed("ReviewLogic"),
+          { spawnKey: spawned("ReviewLogic"), result: blocked("empty fallback chain") },
+        ]);
+      });
+    });
+
+    test("a cancelled binding can be cleared without affecting a later task of the same name", async () => {
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 1,
+              bindings: [{ name: "ReviewLogic", role: "abliterated" }],
+              clearBindings: ["ReviewLogic"],
+              inputs: [{ task: "Review the boundary", agent: "task", name: "ReviewLogic" }],
+              spawns: [{ spawnKey: "parent.ReviewLogic", agent: "task", modelRole: "task", patterns: ["openai/gpt-5"] }],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.bindingResults).toEqual([
+          expect.objectContaining({ content: [{ type: "text", text: expect.stringContaining("Bound task") }] }),
+          { content: [{ type: "text", text: "Cleared model binding for ReviewLogic" }] },
+        ]);
+        expect(report.sessions[0]?.spawnResults).toEqual([null]);
+      });
+    });
+
+    test("repeated and concurrently pending bound names each reach only their own spawn", async () => {
+      const modelSpawn = { model: ["openai/gpt-5-mini"], note: "judge-dispatch explicit model openai/gpt-5-mini" };
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "Scout", role: "abliterated" } },
+                { call: namedTask("Scout"), id: "first" },
+                { bind: { name: "Scout", model: "openai/gpt-5-mini" } },
+                { call: { ...namedTask("Scout"), name: " Scout " }, id: "second" },
+                { call: namedTask("Scout"), id: "early" },
+                { spawn: taskSpawn, from: "second" },
+                { spawn: taskSpawn, from: "first" },
+                { call: namedTask("Scout"), id: "unbound" },
+                { spawn: taskSpawn, from: "unbound" },
+                { spawn: { ...taskSpawn, spawnKey: "parent.Scout-2" } },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          bound,
+          renamed("Scout"),
+          bound,
+          renamed("Scout"),
+          blocked("has not started"),
+          { spawnKey: spawned("Scout"), result: modelSpawn },
+          { spawnKey: spawned("Scout"), result: roleSpawn },
+          null,
+          { spawnKey: "Scout", result: null },
+          { spawnKey: "parent.Scout-2", result: null },
+        ]);
+      });
+    });
+
+    test("a binding and its task in one tool round are refused in either order without poisoning later rounds", async () => {
+      const writeBind = { path: "xd://judge_dispatch_model", content: JSON.stringify({ name: "R2", model: "openai/gpt-5-mini" }) };
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                {
+                  assistant: [
+                    { name: "task", arguments: namedTask("R1") },
+                    { name: "judge_dispatch_model", arguments: { name: "R1", role: "abliterated" } },
+                  ],
+                },
+                { call: namedTask("R1"), id: "same-round" },
+                { call: { name: "R1", role: "abliterated" }, id: "bind", tool: "judge_dispatch_model" },
+                { bind: { name: "R1", role: "abliterated" } },
+                { end: "same-round", result: blockedResult, isError: true },
+                { assistant: [{ name: "task", arguments: namedTask("R1") }] },
+                { call: namedTask("R1"), id: "next-round" },
+                { spawn: taskSpawn, from: "next-round" },
+              ],
+            },
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                {
+                  assistant: [
+                    { name: "write", arguments: writeBind },
+                    { name: "task", arguments: namedTask("R2") },
+                  ],
+                },
+                { call: writeBind, id: "device", tool: "write" },
+                { call: namedTask("R2"), id: "same-round" },
+              ],
+            },
+            {
+              // A recovered message reaches dispatch without the assistant message hook.
+              project: project as string,
+              calls: 0,
+              steps: [
+                { call: { name: "R3", role: "abliterated" }, id: "bind", tool: "judge_dispatch_model" },
+                { call: namedTask("R3"), id: "after-bind" },
+                { call: namedTask("R4"), id: "before-bind" },
+                { bind: { name: "R4", role: "abliterated" } },
+                { spawn: taskSpawn, allocate: "R4" },
+                { assistant: [] },
+                { call: namedTask("R3"), id: "next-round" },
+                { bind: { name: "R4", role: "abliterated" } },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        const [ordered, device, recovered] = report.sessions;
+        expect(ordered?.steps, diagnostics(report)).toEqual([
+          null,
+          blocked("later tool round"),
+          null,
+          bound,
+          null,
+          null,
+          renamed("R1"),
+          { spawnKey: spawned("R1"), result: roleSpawn },
+        ]);
+        expect(device?.steps).toEqual([null, null, blocked("later tool round")]);
+        expect(recovered?.steps).toEqual([
+          null,
+          blocked("later tool round"),
+          null,
+          refused("already dispatched in this tool round"),
+          { spawnKey: "R4", result: null },
+          null,
+          null,
+          bound,
+        ]);
+      });
+    });
+
+    test("session switches keep each session's bindings, background claims survive them, and other branches cannot use a binding", async () => {
+      const preflightFailure = {
+        content: [{ type: "text", text: "Task execution failed: Unknown agent" }],
+        details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
+      };
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "R1", role: "abliterated" } },
+                { bind: { name: "R2", role: "abliterated" } },
+                { bind: { name: "R3", role: "abliterated" } },
+                { call: namedTask("R2"), id: "background" },
+                { call: namedTask("R3"), id: "settled" },
+                { sessionId: "host-judge-session-next" },
+                { call: namedTask("R1"), id: "other-session" },
+                { spawn: taskSpawn, from: "background" },
+                { end: "settled", result: preflightFailure },
+                { assistant: [] },
+                { bind: { name: "R3", role: "abliterated" } },
+                { call: namedTask("R3"), id: "next-session" },
+                { spawn: taskSpawn, from: "next-session" },
+                { sessionId: "host-judge-session-0" },
+                { assistant: [] },
+                { call: namedTask("R1"), id: "returned" },
+                { bind: { name: "R3", role: "abliterated" } },
+                { spawn: taskSpawn, from: "settled" },
+                { spawn: taskSpawn, from: "returned" },
+              ],
+            },
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "X", role: "abliterated" } },
+                { branch: [], replace: true },
+                { call: namedTask("X"), id: "other-branch" },
+                { bind: { name: "X", role: "abliterated" } },
+                { call: namedTask("X"), id: "this-branch" },
+                { spawn: taskSpawn, from: "this-branch" },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        const [switched, branched] = report.sessions;
+        expect(switched?.steps, diagnostics(report)).toEqual([
+          bound,
+          bound,
+          bound,
+          renamed("R2"),
+          renamed("R3"),
+          null,
+          null,
+          { spawnKey: spawned("R2"), result: roleSpawn },
+          null,
+          null,
+          bound,
+          renamed("R3"),
+          { spawnKey: spawned("R3"), result: roleSpawn },
+          null,
+          null,
+          renamed("R1"),
+          refused("already has a pending model binding"),
+          { spawnKey: spawned("R3"), result: null },
+          { spawnKey: spawned("R1"), result: roleSpawn },
+        ]);
+        expect(branched?.steps).toEqual([
+          bound,
+          null,
+          blocked("another branch"),
+          bound,
+          renamed("X"),
+          { spawnKey: spawned("X"), result: roleSpawn },
+        ]);
+      });
+    });
+
+    test("an unspawned claim returns when its call settles, stays with a background job, and blocks an unbound retry", async () => {
+      const preflightFailure = {
+        content: [{ type: "text", text: "Task execution failed: Unknown agent" }],
+        details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
+      };
+      const backgroundJob = {
+        content: [{ type: "text", text: "Spawned agent R1" }],
+        details: { projectAgentsDir: null, results: [], totalDurationMs: 0, async: { state: "running", jobId: "R1", type: "task" } },
+      };
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "R1", role: "abliterated" } },
+                { call: namedTask("R1"), id: "preflight" },
+                { end: "preflight", result: preflightFailure },
+                { bind: { name: "R1", role: "abliterated" } },
+                { call: namedTask("R1"), id: "background" },
+                { end: "background", result: backgroundJob },
+                { bind: { name: "R1", op: "clear" } },
+                { call: namedTask("R1"), id: "retry" },
+                { bind: { name: "R1", role: "abliterated" } },
+                { call: namedTask("R1"), id: "rebound" },
+                { spawn: taskSpawn, from: "preflight" },
+                { spawn: taskSpawn, from: "background" },
+                { spawn: taskSpawn, from: "rebound" },
+                { call: namedTask("R1"), id: "unbound" },
+                { spawn: taskSpawn, from: "unbound" },
+                { bind: { name: "R2", role: "abliterated" } },
+                { call: namedTask("R2"), id: "blocked" },
+                { end: "blocked", result: blockedResult, isError: true },
+                { spawn: taskSpawn, from: "blocked" },
+                { call: namedTask("R2"), id: "after-block" },
+                { spawn: taskSpawn, from: "after-block" },
+                { bind: { name: "R2", op: "clear" } },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          bound,
+          renamed("R1"),
+          null,
+          refused("already has a pending model binding"),
+          renamed("R1"),
+          null,
+          {
+            content: [
+              {
+                type: "text",
+                text: "No model binding pending for R1; the task already dispatched with it has not started and keeps its explicit model when it starts. If that task failed or was cancelled, bind R1 again",
+              },
+            ],
+          },
+          blocked("has not started"),
+          bound,
+          renamed("R1"),
+          { spawnKey: spawned("R1"), result: null },
+          { spawnKey: spawned("R1"), result: roleSpawn },
+          { spawnKey: spawned("R1"), result: roleSpawn },
+          null,
+          { spawnKey: "R1", result: null },
+          bound,
+          renamed("R2"),
+          null,
+          { spawnKey: spawned("R2"), result: null },
+          renamed("R2"),
+          { spawnKey: spawned("R2"), result: roleSpawn },
+          { content: [{ type: "text", text: "No model binding pending for R2" }] },
+        ]);
+      });
+    });
+
+    test("unreadable task shapes cannot take a binding, and look-alike names never reach a claim", async () => {
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "X", role: "abliterated" } },
+                { call: namedTask("X-2"), id: "literal" },
+                { call: { context: "", tasks: [namedTask("X")] }, id: "empty-context" },
+                { call: { context: "shared", model: "openai/gpt-5", tasks: [{ ...namedTask("X"), name: " X " }] }, id: "top-level-model" },
+                { call: { context: "shared", tasks: [namedTask("X"), namedTask("X")] }, id: "duplicate" },
+                { call: namedTask("X"), id: "bound" },
+                { spawn: taskSpawn, from: "literal" },
+                { spawn: taskSpawn, allocate: "X" },
+                { spawn: taskSpawn, from: "bound" },
+                { assistant: [] },
+                { bind: { name: "X-2", role: "abliterated" } },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          bound,
+          null,
+          blocked("cannot read"),
+          blocked("cannot read"),
+          blocked("unique"),
+          renamed("X"),
+          { spawnKey: "X-2", result: null },
+          { spawnKey: "X", result: null },
+          { spawnKey: spawned("X"), result: roleSpawn },
+          null,
+          bound,
+        ]);
+      });
+    });
+
+    test("role aliases, unresolvable concrete models, and disabled providers are refused at bind time", async () => {
+      await withProjects([{}], async ([project]) => {
+        const concrete = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "A", model: "pi/abliterated" } },
+                { bind: { name: "A", model: "@abliterated" } },
+                { bind: { name: "A", model: "openai/gpt-9-missing" } },
+                { bind: { name: "A", model: "openai/gpt-5-mini" } },
+                { call: namedTask("A"), id: "concrete" },
+                { spawn: taskSpawn, from: "concrete" },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+          defaultChain: ["openai/gpt-5"],
+        });
+        expect(concrete.sessions[0]?.steps, diagnostics(concrete)).toEqual([
+          refused("not a role alias"),
+          refused("not a role alias"),
+          refused("openai/gpt-9-missing"),
+          bound,
+          renamed("A"),
+          {
+            spawnKey: spawned("A"),
+            result: { model: ["openai/gpt-5-mini", "openai/gpt-5"], note: "judge-dispatch explicit model openai/gpt-5-mini" },
+          },
+        ]);
+
+        const disabled = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [{ bind: { name: "B", model: "openai/gpt-5-mini" } }, { bind: { name: "B", role: "abliterated" } }],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+          disabledProviders: ["openai"],
+        });
+        expect(disabled.sessions[0]?.steps, diagnostics(disabled)).toEqual([
+          refused("No enabled model resolves"),
+          refused("No enabled model resolves"),
+        ]);
+      });
+    });
+
+    test("Atlas execution neither consumes nor is blocked by pending bindings, and refuses earlier claims at spawn", async () => {
+      await withProjects([{}], async ([project]) => {
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [
+                { bind: { name: "T1", role: "abliterated" } },
+                { branch: prometheus("executing") },
+                { call: namedTask("T1"), id: "atlas" },
+                { spawn: taskSpawn, allocate: "T1" },
+                { bind: { name: "T9", role: "abliterated" } },
+                { branch: prometheus("idle") },
+                { call: namedTask("T1"), id: "after" },
+                { spawn: taskSpawn, from: "after" },
+                { bind: { name: "T2", role: "abliterated" } },
+                { call: namedTask("T2"), id: "before" },
+                { branch: prometheus("executing") },
+                { spawn: taskSpawn, from: "before" },
+              ],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          bound,
+          null,
+          null,
+          { spawnKey: "T1", result: null },
+          refused("Prometheus"),
+          null,
+          renamed("T1"),
+          { spawnKey: spawned("T1"), result: roleSpawn },
+          bound,
+          renamed("T2"),
+          null,
+          { spawnKey: spawned("T2"), result: blocked("before the approved Prometheus plan") },
+        ]);
       });
     });
 

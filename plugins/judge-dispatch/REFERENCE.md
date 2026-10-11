@@ -43,7 +43,13 @@ OMP's `before_subagent_spawn` event carries no assignment, so the plugin links t
 
 A rewrite changes only `agent` when `routeAgent` is on, `effort` when `judgeEffort` is on, and `name` when a model switch needs one.
 
-A `task` call that sets `model` keeps it: the plugin skips model judging and selection, injects no name, and reports the model as pinned by the call.
+On OMP versions exposing the `task.model` field, the plugin leaves that selector pinned and skips model judging for the item; newer OMP versions no longer expose that field.
+
+## From explicit binding to spawn
+
+`judge_dispatch_model` validates a configured `role` or concrete `model` against scoped OMP settings and enabled models, then keeps the requested task name in the current session only. Bind alone, wait for success, and dispatch in a later tool round; same-round binding and dispatch are refused in either order. The next ordinary `task` call with that exact name claims the binding before judge routing and rewrites its name to a unique `<name>_jd<12 hex>` spawn name. Model judgment is skipped for that item; agent and effort judgment remain independent. A plugin-instance registry correlates the unique spawn name with its model patterns even if a background task starts after a session switch. At `before_subagent_spawn`, the claim is consumed and the hook replaces the model patterns. Other tasks reusing the requested name cannot take it. A malformed or conflicting dispatch is blocked and leaves the binding available. Final task results restore unused claims to their original session; background results retain claims until spawn. Clearing removes only requested bindings, never dispatched claims. A cancelled background job that never spawns can retain a claim until the plugin instance is unloaded; bind again before retrying, with either the same requested name or a new name.
+
+For a role, the submitted patterns are the expanded `modelRoles[role]` selectors followed by `retry.fallbackChains[role]`, or by the `default` chain if the role has no entry. For a concrete model, the submitted pattern is that model followed by the configured `default` chain. The plugin does not select one of those fallback models. If the target role's chain is empty and the agent's original role would supply a nonempty fallback chain, the hook blocks the spawn: OMP retains the original `modelRole` and would otherwise attach the wrong chain. This hook cannot change the saved role identity or fully override OMP's credential fallback and retry precedence; concrete model overrides without a default chain may inherit the original role's retry chain. A cold revival may use the original agent's role again. For durable full role semantics, the host needs a first-class role override.
 
 ## Timeouts and failure
 
@@ -51,7 +57,7 @@ Routing gives up after eight seconds and always finishes at least one second bef
 
 ## State
 
-The plugin keeps no per-session routing history or workflow state, saves nothing in the session, and publishes no plugin-state snapshot. It holds a bounded set of pending model choices, each consumed once when the child spawns. Transcript records written by older releases are still rendered and filtered.
+The plugin saves no routing state in the session and publishes no plugin-state snapshot. Pending judge model choices and explicit task-name bindings live only in the current process and are consumed at spawn; they are lost on restart. Older transcript records are still rendered and filtered.
 
 ## Older settings
 

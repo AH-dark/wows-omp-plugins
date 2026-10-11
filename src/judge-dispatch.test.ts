@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   acceptRoutingDecision,
+  ExplicitModelBindings,
+  ExplicitSpawnClaims,
   type ModelOption,
   PendingSpawnRoutes,
   parseLegalAgentNames,
@@ -328,5 +330,70 @@ describe("pending spawn routes", () => {
     pending.add("Plan", decision);
     expect(pending.take("Plan", "task")).toBeUndefined();
     expect(pending.take("Plan-2", "task")).toBeUndefined();
+  });
+});
+
+describe("explicit model bindings", () => {
+  const model = { patterns: ["openai/gpt-5-mini"], note: "note", role: false };
+  const binding = { source: { role: "smol" }, callId: "bind" };
+
+  test("each claim gets a unique spawn name that only its own spawn key reaches", () => {
+    const bindings = new ExplicitModelBindings();
+    const claims = new ExplicitSpawnClaims();
+    expect(bindings.bind("Scout", binding)).toBeUndefined();
+    const [first = ""] = claims.claim(bindings, "first", [{ name: "Scout", binding, model }]);
+    expect(first).toMatch(/^Scout_jd[0-9a-f]{12}$/);
+    expect(bindings.requested("Scout")).toBeUndefined();
+    expect(bindings.bind("Scout", binding)).toBeUndefined();
+    const [second = ""] = claims.claim(bindings, "second", [{ name: "Scout", binding, model }]);
+    expect(second).not.toBe(first);
+    for (const key of ["Scout", "Scout-2", `${first}x`]) expect(claims.take(key)).toBeUndefined();
+    expect(claims.reserved(`parent.${second}`)).toBe(true);
+    expect(claims.reserved("Scout")).toBe(false);
+    expect(claims.take(`parent.${second}`)).toBe(model);
+    expect(claims.take(` ${first} `)).toBe(model);
+    expect(claims.take(first)).toBeUndefined();
+  });
+
+  test("a tool round refuses a task beside its binding call in either order and resets with the next message", () => {
+    const bindings = new ExplicitModelBindings();
+    bindings.startRound(["R1"]);
+    expect(bindings.dispatchConflict("R1")).toContain("later tool round");
+    bindings.startRound([]);
+    expect(bindings.dispatchConflict("R1")).toBeUndefined();
+    bindings.dispatched(["R2"]);
+    expect(bindings.bind("R2", binding)).toContain("already dispatched in this tool round");
+    bindings.announce("R3");
+    expect(bindings.dispatchConflict("R3")).toContain("later tool round");
+    bindings.startRound([]);
+    expect(bindings.bind("R2", binding)).toBeUndefined();
+    expect(bindings.bind("R2", binding)).toContain("already has a pending model binding");
+    expect(bindings.dispatchConflict("R3")).toBeUndefined();
+  });
+
+  test("a settled call returns only its own claims to their owner, without replacing a newer binding", () => {
+    const owner = new ExplicitModelBindings();
+    const other = new ExplicitModelBindings();
+    const claims = new ExplicitSpawnClaims();
+    const newer = { source: { model: "openai/gpt-5" }, callId: "rebind" };
+    owner.bind("A", binding);
+    owner.bind("B", binding);
+    other.bind("C", binding);
+    const [a = "", b = ""] = claims.claim(owner, "first", [
+      { name: "A", binding, model },
+      { name: "B", binding, model },
+    ]);
+    const [c = ""] = claims.claim(other, "second", [{ name: "C", binding, model }]);
+    expect(claims.awaiting(owner, "A")).toBe(true);
+    expect(claims.awaiting(other, "A")).toBe(false);
+    owner.bind("B", newer);
+    claims.settle("first");
+    expect(owner.requested("A")).toEqual(binding);
+    expect(owner.requested("B")).toEqual(newer);
+    expect(claims.take(a)).toBeUndefined();
+    expect(claims.take(b)).toBeUndefined();
+    expect(claims.awaiting(owner, "A")).toBe(false);
+    expect(claims.take(c)).toBe(model);
+    expect(other.requested("C")).toBeUndefined();
   });
 });
