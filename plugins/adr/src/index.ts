@@ -7,6 +7,7 @@ import { interceptionReason } from "#src/interception.ts";
 import { PluginStatePublisher } from "#src/plugin-state.ts";
 import { registerService } from "#src/service.ts";
 import { AdrSession, type UiFactory } from "#src/ses.ts";
+import { readUiMenu } from "#src/settings.ts";
 import { adrStatus, renderInjection } from "#src/state.ts";
 import { registerTools } from "#src/tools.ts";
 import { createTuiUi } from "#src/ui.ts";
@@ -20,7 +21,12 @@ export function __setUiFactory(factory?: UiFactory): void {
 
 export default function adr(pi: ExtensionAPI): void {
   const ses = new AdrSession();
-  const uiFor: UiFactory = (ctx) => (testUiFactory ?? ((host) => createTuiUi(host, pi)))(ctx);
+  const uiFor: UiFactory = async (ctx) => {
+    if (testUiFactory) return testUiFactory(ctx);
+    // Only the terminal UI can show the fullscreen console, so other clients never read the setting.
+    const uiMenu = ctx.hasUI && ctx.mode === "tui" ? await readUiMenu(ctx.cwd, (message, data) => pi.logger.warn(message, data)) : "inline";
+    return createTuiUi(ctx, pi, uiMenu);
+  };
   let warned = false;
   const warn = (error: unknown): void => {
     if (warned) return;
@@ -53,7 +59,7 @@ export default function adr(pi: ExtensionAPI): void {
     try {
       await commands.refresh(ctx);
     } catch (error) {
-      uiFor(ctx).notify(`ADR state could not be read: ${error instanceof Error ? error.message : String(error)}`, "error");
+      (await uiFor(ctx)).notify(`ADR state could not be read: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
   }
   pi.on("session_start", rebuild);
@@ -87,7 +93,7 @@ export default function adr(pi: ExtensionAPI): void {
       if (!model) return;
       return { systemPrompt: [...event.systemPrompt, renderInjection(model)] };
     } catch (error) {
-      uiFor(ctx).notify(`ADR context could not be read: ${error instanceof Error ? error.message : String(error)}`, "error");
+      (await uiFor(ctx)).notify(`ADR context could not be read: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
   });
 }

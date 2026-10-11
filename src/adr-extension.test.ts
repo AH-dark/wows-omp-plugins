@@ -12,9 +12,18 @@ import { createMany, initialize, type WriteResult } from "../plugins/adr/src/ope
 import { pluginStatePath } from "../plugins/adr/src/plugin-state.ts";
 import type { AdrApiV1 } from "../plugins/adr/src/service.ts";
 import type { UiFactory } from "../plugins/adr/src/ses.ts";
+import { readUiMenu } from "../plugins/adr/src/settings.ts";
 import type { AdrStatusState } from "../plugins/adr/src/state.ts";
 import type { Receipt } from "../plugins/adr/src/tools.ts";
-import { type AdrMessenger, type AdrUi, HeadlessUi, type MenuChoice, type MenuEntry, type PreviewFile } from "../plugins/adr/src/ui.ts";
+import {
+  type AdrMessenger,
+  type AdrUi,
+  HeadlessUi,
+  type MenuChoice,
+  type MenuEntry,
+  type MenuOptions,
+  type PreviewFile,
+} from "../plugins/adr/src/ui.ts";
 import { decision, git, LEGACY_ADR_1, LEGACY_INDEX } from "./adr-fixtures.ts";
 
 const CHILD_ENV = "ADR_EXTENSION_CASE";
@@ -24,16 +33,21 @@ const PLUGIN_DIR = fileURLToPath(new URL("../plugins/adr", import.meta.url));
 
 class ScriptedUi implements AdrUi {
   readonly interactive = true;
+  console = false;
   menuChoice: MenuChoice | undefined;
+  /** Answers queued for successive menu calls (a console re-opening); `menuChoice` answers once it is empty. */
+  menuChoices: Array<MenuChoice | undefined> = [];
   menuCalls: MenuEntry[][] = [];
+  menuOptions: Array<MenuOptions | undefined> = [];
   texts: Array<string | undefined> = [];
   confirmed: boolean | undefined = true;
   previewCalls: Array<{ title: string; files: PreviewFile[] }> = [];
   notifications: Array<{ message: string; level: string }> = [];
 
-  async menu(entries: MenuEntry[]) {
+  async menu(entries: MenuEntry[], options?: MenuOptions) {
     this.menuCalls.push(entries);
-    return this.menuChoice;
+    this.menuOptions.push(options);
+    return this.menuChoices.length ? this.menuChoices.shift() : this.menuChoice;
   }
 
   async text() {
@@ -105,7 +119,7 @@ async function createHarness(root: string, options: { sub?: boolean; entry?: str
   const setUi = (value?: UiFactory): void => {
     setter(value);
   };
-  setUi(() => ui);
+  setUi(async () => ui);
   const runner = session.extensionRunner;
   assert(runner);
   const kickoffs: string[] = [];
@@ -185,6 +199,8 @@ const CASES: Record<string, string> = {
   init: "/adr init writes only after a confirmed preview and is idempotent",
   headless: "without a UI, /adr init holds a token for /adr confirm and subcommands decide, note and hand off",
   menu: "the /adr menu accepts, notes, supersedes and starts new decisions",
+  console: "the fullscreen console re-opens after local actions with a result line and closes on hand-off or Esc",
+  settings: "uiMenu is read from the project settings, defaults to fullscreen and falls back on invalid values",
   subagent: "subagents get the summary, create only proposed ADRs and cannot decide or run /adr",
 };
 
@@ -459,7 +475,7 @@ async function acceptance(name: string, root: string): Promise<void> {
       const messenger: AdrMessenger = {
         sendMessage: (message) => h.messages.push(typeof message === "string" ? message : String(message.content)),
       };
-      h.setUi(() => new HeadlessUi(messenger));
+      h.setUi(async () => new HeadlessUi(messenger));
       await command(h, "init");
       const token = /\/adr confirm ([0-9a-f]{12})/.exec(h.messages.at(-1) ?? "")?.[1];
       assert(token, h.messages.join("\n"));
@@ -538,6 +554,69 @@ async function acceptance(name: string, root: string): Promise<void> {
             ?.map((option) => option.label) ?? [];
         assert.equal(new Set(labels).size, labels.length, `the menu shows every completion distinctly: ${labels.join(", ")}`);
       }
+    } else if (name === "console") {
+      await initialize(root, "main");
+      await createMany(root, "main", [decision, { ...decision, title: "Second" }]);
+      h.ui.console = true;
+      h.ui.menuChoices = [
+        { action: "accept", id: "ADR-0001" },
+        { action: "check" },
+        { action: "note", id: "ADR-0002" },
+        { action: "supersede", id: "ADR-0002" },
+        undefined,
+      ];
+      h.ui.texts = [undefined, "anything"];
+      await command(h);
+      assert.equal(h.ui.menuCalls.length, 5);
+      assert.deepEqual(h.ui.menuOptions[0], {});
+      assert.deepEqual(h.ui.menuOptions[1], { selectedId: "ADR-0001", message: { text: "ADR-0001 accepted.", level: "info" } });
+      assert.equal(h.ui.menuCalls[1]?.[0]?.record.status, "accepted", "the re-opened console shows the new status");
+      assert.equal(h.ui.menuOptions[2]?.selectedId, "ADR-0001");
+      assert.match(h.ui.menuOptions[2]?.message?.text ?? "", /^ADR check passed/);
+      assert.deepEqual(h.ui.menuOptions[3], { selectedId: "ADR-0002", message: { text: "No note appended.", level: "info" } });
+      assert.equal(h.ui.menuOptions[4]?.message?.level, "error");
+      assert.match(h.ui.menuOptions[4]?.message?.text ?? "", /Only an accepted or deprecated ADR can be superseded/);
+      assert.equal(h.kickoffs.length, 0);
+      assert.equal(h.ui.notifications.length, 0, "console errors stay in the console");
+      assert.match(h.messages.join("\n"), /ADR-0001 accepted\.[\s\S]*ADR check passed/, "receipts still reach the conversation");
+      // Hand-offs close the console: the agent interviews next.
+      h.ui.menuCalls = [];
+      h.ui.menuChoices = [{ action: "new" }];
+      h.ui.texts = ["caching"];
+      await command(h);
+      assert.equal(h.ui.menuCalls.length, 1);
+      assert.match(h.kickoffs.at(-1) ?? "", /new architecture decision on: caching/);
+      h.ui.menuCalls = [];
+      h.ui.menuChoices = [{ action: "supersede", id: "ADR-0001" }];
+      h.ui.texts = [""];
+      await command(h);
+      assert.equal(h.ui.menuCalls.length, 1);
+      assert.match(h.kickoffs.at(-1) ?? "", /replaces ADR-0001/);
+      // A cancelled hand-off dialog returns to the console instead.
+      h.ui.menuCalls = [];
+      h.ui.menuChoices = [{ action: "new" }, undefined];
+      h.ui.texts = [undefined];
+      await command(h);
+      assert.equal(h.ui.menuCalls.length, 2);
+      assert.equal(h.ui.menuOptions.at(-1)?.message?.text, "No new decision started.");
+      assert.equal((await loadInitialized(root))?.adrs[0]?.status, "accepted");
+    } else if (name === "settings") {
+      const warnings: unknown[] = [];
+      const warn = (message: string, data: Record<string, unknown>): void => {
+        warnings.push([message, data]);
+      };
+      assert.equal(await readUiMenu(root, warn), "fullscreen");
+      const configure = (value: unknown) =>
+        writeFile(join(root, ".omp/plugin-overrides.json"), JSON.stringify({ settings: { "wows-omp-plugin-adr": { uiMenu: value } } }));
+      await mkdir(join(root, ".omp"), { recursive: true });
+      await configure("inline");
+      assert.equal(await readUiMenu(root, warn), "inline");
+      await configure("fullscreen");
+      assert.equal(await readUiMenu(root, warn), "fullscreen");
+      assert.equal(warnings.length, 0);
+      await configure("sideways");
+      assert.equal(await readUiMenu(root, warn), "fullscreen");
+      assert.match(JSON.stringify(warnings), /uiMenu setting is invalid.*sideways/);
     } else if (name === "subagent") {
       assert.match(await injection(h), /^ADRs in docs\/adr: 1 proposed\.\nProposed: ADR-0001 Pending choice\./);
       const created = await call(h, "adr_manage", { action: "create", ...decision, status: "accepted" });

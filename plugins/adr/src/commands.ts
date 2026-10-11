@@ -1,11 +1,12 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
+import type { ConsoleMessage } from "#src/console.ts";
 import { type AdrDoc, type AdrModel, adrRepo, loadInitialized, loadModel, ordered, STATUSES, toRecord } from "#src/documents.ts";
 import { discoverRepo } from "#src/git.ts";
 import { initialize, note, setStatus } from "#src/operations.ts";
 import type { AdrSession, UiFactory } from "#src/ses.ts";
 import { checkReceipt, detailText, failure, type Receipt, requireInitialized, statusReceipt, toolResult, written } from "#src/tools.ts";
-import type { MenuAction } from "#src/ui.ts";
+import type { AdrUi, MenuAction, MenuChoice, MenuOptions } from "#src/ui.ts";
 
 export interface AdrCommands {
   refresh(ctx: ExtensionContext): Promise<void>;
@@ -58,6 +59,17 @@ function supersedePrompt(doc: AdrDoc, topic: string): string {
   return `Use the adr skill to interview me about the decision that replaces ${doc.id} — ${doc.title}${topic ? `; new direction: ${topic}` : ""}. Read ${doc.id} and its supersession chain with adr_status first. Gather what changed, decision drivers, genuine considered options, the new outcome and why, consequences and how it will be confirmed. Show me the draft and wait for my explicit agreement, then call adr_manage with action "supersede" and id "${doc.id}"; the successor is recorded as accepted and ${doc.id} becomes superseded.`;
 }
 
+/** One console line for a receipt; the full receipt is also posted to the conversation. */
+function resultLine(receipt: Receipt): ConsoleMessage {
+  if (receipt.ok) {
+    const count = receipt.warnings.length;
+    const warnings = count ? ` ${count} warning${count === 1 ? "" : "s"}; see the conversation.` : "";
+    return { text: `${receipt.summary.split("\n")[0]}${warnings}`, level: "info" };
+  }
+  const [first, ...rest] = receipt.reason.split("\n");
+  return { text: `${first}${rest.length ? ` (+${rest.length} more; see the conversation)` : ""}`, level: "error" };
+}
+
 export function registerCommands(
   pi: ExtensionAPI,
   ses: AdrSession,
@@ -84,8 +96,7 @@ export function registerCommands(
     return doc;
   }
 
-  async function init(ctx: ExtensionCommandContext, args: string): Promise<void> {
-    const ui = uiFor(ctx);
+  async function init(ctx: ExtensionCommandContext, ui: AdrUi, args: string): Promise<void> {
     if (args) throw new Error("Usage: /adr init");
     const repo = adrRepo(ctx.cwd);
     const preview = await initialize(repo.repoRoot, "main", { dryRun: true });
@@ -126,7 +137,8 @@ export function registerCommands(
     }
   }
 
-  async function decide(ctx: ExtensionCommandContext, action: MenuAction, id: string, text: string): Promise<void> {
+  /** Records a decision or note and returns its receipt; a supersede hands the interview to the agent and returns undefined. */
+  async function decide(ctx: ExtensionCommandContext, action: MenuAction, id: string, text: string): Promise<Receipt | undefined> {
     const repo = await requireInitialized(ctx.cwd, "user");
     const model = await loadModel(repo);
     if (!id) throw new Error(`Usage: /adr ${action} <id>${action === "note" ? " <text>" : action === "supersede" ? " [topic]" : ""}`);
@@ -141,6 +153,7 @@ export function registerCommands(
         receipt = failure(error);
       }
       show("wows-omp-adr.status", receipt);
+      return receipt;
     } else if (action === "note") {
       if (!text) throw new Error("Usage: /adr note <id> <text>");
       let receipt: Receipt;
@@ -150,49 +163,89 @@ export function registerCommands(
         receipt = failure(error);
       }
       show("wows-omp-adr.note", receipt);
-    } else if (action === "supersede") {
+      return receipt;
+    }
+    if (action === "supersede") {
       if (doc.status !== "accepted" && doc.status !== "deprecated")
         throw new Error(`Only an accepted or deprecated ADR can be superseded; ${doc.id} is ${doc.status}.`);
       pi.sendUserMessage(supersedePrompt(doc, text));
     }
+    return undefined;
   }
 
-  async function menu(ctx: ExtensionCommandContext): Promise<void> {
-    const ui = uiFor(ctx);
-    const repo = await requireInitialized(ctx.cwd, "user");
-    if (!ui.interactive) {
-      show("wows-omp-adr.list", await statusReceipt(repo), USAGE);
-      return;
-    }
-    const model = await loadModel(repo);
-    const choice = await ui.menu(ordered(model.adrs).map((doc) => ({ record: toRecord(repo, doc), detail: detailText(model, doc) })));
-    if (!choice) return;
+  /** Runs one menu choice: a console line for actions that finish here, `handoff` once the agent takes over. */
+  async function act(ctx: ExtensionCommandContext, ui: AdrUi, choice: MenuChoice): Promise<ConsoleMessage | "handoff"> {
     if (choice.action === "check" || choice.action === "check-fix") {
-      show("wows-omp-adr.check", await checkReceipt(repo, choice.action === "check-fix"));
-    } else if (choice.action === "new") {
+      const receipt = await checkReceipt(await requireInitialized(ctx.cwd, "user"), choice.action === "check-fix");
+      show("wows-omp-adr.check", receipt);
+      return resultLine(receipt);
+    }
+    if (choice.action === "new") {
       const topic = await ui.text("New decision", "Optional topic; leave empty to start the interview");
-      if (topic !== undefined) pi.sendUserMessage(newPrompt(topic.trim()));
-    } else if (choice.action === "note" || choice.action === "supersede") {
-      const id = choice.id as string;
-      const text = await ui.text(
+      if (topic === undefined) return { text: "No new decision started.", level: "info" };
+      pi.sendUserMessage(newPrompt(topic.trim()));
+      return "handoff";
+    }
+    const id = choice.id as string;
+    let text = "";
+    if (choice.action === "note" || choice.action === "supersede") {
+      const typed = await ui.text(
         choice.action === "note" ? `Note for ${id}` : `Supersede ${id}`,
         choice.action === "note"
           ? "Dated note appended under More Information"
           : "Optional new direction; leave empty to start the interview",
       );
-      if (text === undefined || (choice.action === "note" && !text.trim())) return;
-      await decide(ctx, choice.action, id, text.trim());
-    } else await decide(ctx, choice.action, choice.id as string, "");
+      if (typed === undefined || (choice.action === "note" && !typed.trim()))
+        return { text: choice.action === "note" ? "No note appended." : `${id} was not superseded.`, level: "info" };
+      text = typed.trim();
+    }
+    const receipt = await decide(ctx, choice.action, id, text);
+    return receipt ? resultLine(receipt) : "handoff";
+  }
+
+  /**
+   * Inline dialogs run one action and return. The fullscreen console re-opens on the same ADR with a result line after
+   * every action that finishes here, and closes once the agent takes over (new decision, supersede) or on Esc.
+   */
+  async function menu(ctx: ExtensionCommandContext, ui: AdrUi): Promise<void> {
+    const repo = await requireInitialized(ctx.cwd, "user");
+    if (!ui.interactive) {
+      show("wows-omp-adr.list", await statusReceipt(repo), USAGE);
+      return;
+    }
+    let options: MenuOptions = {};
+    for (;;) {
+      const model = await loadModel(repo);
+      const choice = await ui.menu(
+        ordered(model.adrs).map((doc) => ({ record: toRecord(repo, doc), detail: detailText(model, doc) })),
+        options,
+      );
+      if (!choice) return;
+      if (!ui.console) {
+        await act(ctx, ui, choice);
+        return;
+      }
+      let message: ConsoleMessage;
+      try {
+        const outcome = await act(ctx, ui, choice);
+        if (outcome === "handoff") return;
+        message = outcome;
+      } catch (error) {
+        message = { text: error instanceof Error ? error.message : String(error), level: "error" };
+      }
+      changed(ctx);
+      options = { selectedId: choice.id ?? options.selectedId, message };
+    }
   }
 
   async function adrCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
-    const ui = uiFor(ctx);
+    const ui = await uiFor(ctx);
     try {
       if (ctx.agent.kind !== "main") throw new Error("/adr commands require the main session.");
       const [action, rest] = head(args);
       const [first, remainder] = head(rest);
-      if (!action) await menu(ctx);
-      else if (action === "init") await init(ctx, rest);
+      if (!action) await menu(ctx, ui);
+      else if (action === "init") await init(ctx, ui, rest);
       else if (action === "confirm") {
         if (!first || remainder) throw new Error("Usage: /adr confirm <token>");
         const preview = ses.takePreview(ctx, first);

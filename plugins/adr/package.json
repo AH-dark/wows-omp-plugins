@@ -11,6 +11,17 @@
   "omp": {
     "extensions": [
       "./src/index.ts"
-    ]
+    ],
+    "settings": {
+      "uiMenu": {
+        "type": "enum",
+        "values": [
+          "inline",
+          "fullscreen"
+        ],
+        "default": "fullscreen",
+        "description": "How /adr shows its menu and write previews: a fullscreen console with a list and the full decision text, or the small select dialogs"
+      }
+    }
   }
 }

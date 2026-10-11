@@ -1,6 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
+import { AdrConsole, AdrPreview, type ConsoleMessage, type ConsoleResult, type ConsoleState, type DecisionAction } from "#src/console.ts";
 import { type AdrRecord, type AdrStatus, STATUSES } from "#src/documents.ts";
+import type { UiMenu } from "#src/settings.ts";
 
 export type MenuAction = "accept" | "reject" | "deprecate" | "note" | "supersede" | "new" | "check" | "check-fix";
 
@@ -16,6 +18,11 @@ export interface MenuEntry {
   detail: string;
 }
 
+/** Where a re-opened console resumes: the ADR last acted on and the result of that action. */
+export interface MenuOptions {
+  selectedId?: string;
+  message?: ConsoleMessage;
+}
 export interface PreviewFile {
   /** Repository-relative path. */
   path: string;
@@ -25,21 +32,24 @@ export interface PreviewFile {
 export interface AdrUi {
   /** False when no dialog can be answered (`hasUI === false`); callers then take their non-interactive path. */
   readonly interactive: boolean;
-  /** Status filter, then list, then detail; resolves with the chosen action, or undefined when the menu is closed. */
-  menu(entries: MenuEntry[]): Promise<MenuChoice | undefined>;
+  /** True when `menu` is the fullscreen console, which the caller re-opens after an action that completes locally. */
+  readonly console: boolean;
+  /** Resolves with the chosen action, or undefined when the menu is closed. Inline: status filter, then list, then detail. */
+  menu(entries: MenuEntry[], options?: MenuOptions): Promise<MenuChoice | undefined>;
   /** Single-line text; undefined when cancelled. */
   text(title: string, placeholder: string): Promise<string | undefined>;
   previewConfirm(p: { title: string; files: PreviewFile[] }): Promise<boolean | undefined>;
   notify(message: string, level: "info" | "warning" | "error"): void;
 }
 
-export type AdrUiContext = Pick<ExtensionContext, "ui" | "hasUI">;
+export type AdrUiContext = Pick<ExtensionContext, "ui" | "hasUI" | "mode">;
 export type AdrMessenger = Pick<ExtensionAPI, "sendMessage">;
 const NOTICE_TYPE = "wows-omp-adr.notice";
 
 /** No dialogs; notices become displayed session messages so headless and SDK clients still see them. */
 export class HeadlessUi implements AdrUi {
   readonly interactive = false;
+  readonly console = false;
 
   constructor(private readonly pi: AdrMessenger) {}
 
@@ -82,9 +92,9 @@ export function statusCounts(records: readonly Pick<AdrRecord, "status">[]): str
 }
 
 /** Status transitions the menu offers for one ADR; a superseded ADR offers none. */
-function decisions(record: AdrRecord): Array<readonly [string, MenuAction]> {
+function decisions(record: AdrRecord): Array<readonly [string, DecisionAction]> {
   if (record.status === "superseded" || record.superseded_by) return [["Append a dated note", "note"]];
-  const result: Array<readonly [string, MenuAction]> = [];
+  const result: Array<readonly [string, DecisionAction]> = [];
   if (record.status !== "accepted") result.push(["Accept", "accept"]);
   if (record.status !== "rejected") result.push(["Reject", "reject"]);
   if (record.status !== "deprecated") result.push(["Deprecate", "deprecate"]);
@@ -93,9 +103,26 @@ function decisions(record: AdrRecord): Array<readonly [string, MenuAction]> {
   return result;
 }
 
-export function createTuiUi(ctx: AdrUiContext, pi: AdrMessenger): AdrUi {
+/** Dialog title for one ADR's actions: id, title, status, date, stage and successor. */
+function decisionTitle(record: AdrRecord): string {
+  const where = [
+    record.date,
+    record.stage ? `stage ${record.stage}` : "",
+    record.superseded_by ? `superseded by ${record.superseded_by}` : "",
+  ];
+  return `${record.id} ${record.title} [${record.status}] · ${where.filter(Boolean).join(" · ")}`;
+}
+
+const FULLSCREEN = {
+  overlay: true,
+  overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0, fullscreen: true },
+} as const;
+
+/** `uiMenu` matters only in the terminal UI; RPC and ACP clients cannot mount components and keep the dialogs. */
+export function createTuiUi(ctx: AdrUiContext, pi: AdrMessenger, uiMenu: UiMenu): AdrUi {
   if (!ctx.hasUI) return new HeadlessUi(pi);
   const ui = ctx.ui;
+  const fullscreen = uiMenu === "fullscreen" && ctx.mode === "tui" && typeof ui.custom === "function";
   const BACK = "← Back";
 
   async function choose<T>(title: string, options: ReadonlyArray<readonly [string, T]>): Promise<T | undefined> {
@@ -114,12 +141,7 @@ export function createTuiUi(ctx: AdrUiContext, pi: AdrMessenger): AdrUi {
         ...decisions(record),
         [BACK, "back"],
       ];
-      const where = [
-        record.date,
-        record.stage ? `stage ${record.stage}` : "",
-        record.superseded_by ? `superseded by ${record.superseded_by}` : "",
-      ];
-      const picked = await choose(`${record.id} ${record.title} [${record.status}] · ${where.filter(Boolean).join(" · ")}`, options);
+      const picked = await choose(decisionTitle(record), options);
       if (picked === undefined || picked === "back") return "back";
       if (picked !== "view") return { action: picked, id: record.id };
       await ui.editor(`${record.path} (read-only, edits are discarded)`, entry.detail);
@@ -142,43 +164,72 @@ export function createTuiUi(ctx: AdrUiContext, pi: AdrMessenger): AdrUi {
     }
   }
 
+  async function inlineMenu(entries: MenuEntry[]): Promise<MenuChoice | undefined> {
+    for (;;) {
+      const records = entries.map((entry) => entry.record);
+      const filters = [
+        ["All ADRs", undefined] as const,
+        ...STATUSES.filter((status) => records.some((record) => record.status === status)).map(
+          (status) => [`${status[0]?.toUpperCase()}${status.slice(1)}`, status] as const,
+        ),
+      ];
+      const options: Array<readonly [string, { filter: AdrStatus | undefined; label: string } | MenuAction]> = [
+        ...(entries.length
+          ? filters.map(([label, filter]) => {
+              const count = filter ? records.filter((record) => record.status === filter).length : records.length;
+              return [`${label} (${count})`, { filter, label }] as const;
+            })
+          : []),
+        ["New decision…", "new"],
+        ["Run check", "check"],
+        ["Run check and regenerate the index", "check-fix"],
+      ];
+      const picked = await choose(`ADRs: ${statusCounts(records)}`, options);
+      if (picked === undefined) return undefined;
+      if (typeof picked === "string") return { action: picked };
+      const choice = await list(
+        entries.filter((entry) => !picked.filter || entry.record.status === picked.filter),
+        picked.label,
+      );
+      if (choice !== "back") return choice;
+    }
+  }
+
+  /** Filter and search persist while this UI lives, i.e. across re-opens within one /adr command. */
+  let consoleState: ConsoleState = { query: "" };
+
+  /** Enter on an ADR asks which decision to record in the small dialog; Back returns to the console. */
+  async function consoleMenu(entries: MenuEntry[], options: MenuOptions): Promise<MenuChoice | undefined> {
+    if (options.selectedId) consoleState = { ...consoleState, selectedId: options.selectedId };
+    let message = options.message;
+    const items = entries.map((entry) => ({ ...entry, offered: decisions(entry.record).map(([, action]) => action) }));
+    for (;;) {
+      const [result, state] = await ui.custom<[ConsoleResult, ConsoleState]>(
+        (tui, theme, _keys, done) => new AdrConsole(items, consoleState, theme, tui, (picked, next) => done([picked, next]), message),
+        FULLSCREEN,
+      );
+      consoleState = state;
+      message = undefined;
+      if (result.kind === "close") return undefined;
+      if (result.kind === "action") return "id" in result ? { action: result.action, id: result.id } : { action: result.action };
+      const record = entries.find((entry) => entry.record.id === result.id)?.record;
+      if (!record) continue;
+      const picked = await choose<DecisionAction | "back">(decisionTitle(record), [...decisions(record), [BACK, "back"]]);
+      if (picked !== undefined && picked !== "back") return { action: picked, id: record.id };
+    }
+  }
+
   return {
     interactive: true,
+    console: fullscreen,
 
-    async menu(entries) {
-      for (;;) {
-        const records = entries.map((entry) => entry.record);
-        const filters = [
-          ["All ADRs", undefined] as const,
-          ...STATUSES.filter((status) => records.some((record) => record.status === status)).map(
-            (status) => [`${status[0]?.toUpperCase()}${status.slice(1)}`, status] as const,
-          ),
-        ];
-        const options: Array<readonly [string, { filter: AdrStatus | undefined; label: string } | MenuAction]> = [
-          ...(entries.length
-            ? filters.map(([label, filter]) => {
-                const count = filter ? records.filter((record) => record.status === filter).length : records.length;
-                return [`${label} (${count})`, { filter, label }] as const;
-              })
-            : []),
-          ["New decision…", "new"],
-          ["Run check", "check"],
-          ["Run check and regenerate the index", "check-fix"],
-        ];
-        const picked = await choose(`ADRs: ${statusCounts(records)}`, options);
-        if (picked === undefined) return undefined;
-        if (typeof picked === "string") return { action: picked };
-        const choice = await list(
-          entries.filter((entry) => !picked.filter || entry.record.status === picked.filter),
-          picked.label,
-        );
-        if (choice !== "back") return choice;
-      }
-    },
+    menu: (entries, options = {}) => (fullscreen ? consoleMenu(entries, options) : inlineMenu(entries)),
 
     text: (title, placeholder) => ui.input(title, placeholder),
 
     async previewConfirm(p) {
+      if (fullscreen)
+        return ui.custom<boolean>((tui, theme, _keys, done) => new AdrPreview(p.title, p.files, theme, tui, done), FULLSCREEN);
       const write = `Write ${p.files.length} file${p.files.length === 1 ? "" : "s"}`;
       const cancel = "Cancel";
       const labels = [write, ...p.files.map((file) => `View ${file.path}`), cancel];

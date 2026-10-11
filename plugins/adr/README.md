@@ -16,9 +16,9 @@ Requires OMP 18.5.1 or newer and a local Git repository. Any `git init` work tre
 
 ## Quick start
 
-1. Run `/adr init` in the main session. `docs/adr/` must be absent or empty. Review the preview and pick `Write 1 file`.
+1. Run `/adr init` in the main session. `docs/adr/` must be absent or empty. Review the preview and pick `Write 1 file` (Shift+W in the fullscreen preview).
 2. Run `/adr new` (optionally with a topic, such as `/adr new database choice`). The agent interviews you about the context, options and outcome, shows you the draft and records it as a proposed ADR.
-3. Run `/adr`, pick the ADR and choose `Accept`, `Reject` or `Deprecate`.
+3. Run `/adr`, select the ADR, press Enter and choose `Accept`, `Reject` or `Deprecate`.
 
 Repositories whose ADRs were written by the roadmap plugin 0.4.0 or earlier need no initialization; see [Existing roadmap ADRs](#existing-roadmap-adrs).
 
@@ -49,7 +49,7 @@ All commands run in the main session and complete subcommands and ADR IDs.
 
 | Command | Behavior |
 | --- | --- |
-| `/adr` | Menu: filter by status, open an ADR, view it, accept, reject or deprecate it, append a note, supersede it, start a new decision or run the check. |
+| `/adr` | Opens the ADR console. Filter by status, search, read an ADR, accept, reject or deprecate it, append a note, supersede it, start a new decision or run the check. See [The /adr console](#the-adr-console). |
 | `/adr list [status]` | List ADRs, optionally with one status. |
 | `/adr show <id>` | Show one ADR with its supersession chain. |
 | `/adr accept\|reject\|deprecate <id>` | Record your decision. |
@@ -59,6 +59,27 @@ All commands run in the main session and complete subcommands and ADR IDs.
 | `/adr check [--fix]` | Check consistency; `--fix` regenerates the index table. |
 | `/adr init` | Initialize `docs/adr/` after a confirmed preview. |
 | `/adr confirm <token>` | Confirm a held `/adr init` preview when no dialog was available. |
+
+### The /adr console
+
+With the default `uiMenu: fullscreen`, `/adr` fills the terminal. ADRs are listed on the left with a status mark, and the selected one is shown in full on the right, with its supersession chain.
+
+| Key | Action |
+| --- | --- |
+| Up, Down, Home, End | Select an ADR. |
+| PgUp, PgDn, mouse wheel | Scroll the decision text. The wheel over the list moves the selection. |
+| Tab, Shift+Tab | Switch between All and each status present, with counts. |
+| Lowercase letters, digits | Search IDs, titles and statuses. Backspace edits the search. |
+| Enter | Choose a decision for the selected ADR in a small dialog. |
+| Shift+A, R, D | Accept, reject or deprecate the selected ADR, when its status allows it. |
+| Shift+N, S | Append a note, or supersede an accepted or deprecated ADR. |
+| Shift+C | Start a new decision. |
+| Shift+V, F | Run the check, or run it and regenerate the index. |
+| Esc | Clear the search, then close. |
+
+Accepting, rejecting, deprecating, adding a note and running the check reopen the console on the same ADR, with the result in one line above the key hints. The full result also goes to the conversation. Starting a new decision or a supersession closes the console, because the agent interviews you next. Cancelling their topic dialog brings you back to the console.
+
+The `/adr init` preview uses the same layout: the files on the left, the selected file on the right. Shift+W writes every file, Esc declines.
 
 ### Agent tools
 
@@ -78,7 +99,17 @@ The conversion is one-way: the roadmap plugin 0.4.0 and earlier cannot read conv
 
 ## Settings
 
-The plugin has no settings.
+Package name for `omp plugin config`: `wows-omp-plugin-adr`.
+
+```bash
+omp plugin config set wows-omp-plugin-adr uiMenu inline
+```
+
+| Setting | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `uiMenu` | `fullscreen` \| `inline` | `fullscreen` | `fullscreen` opens the [console](#the-adr-console) and the fullscreen write preview. `inline` keeps the small select dialogs: a status filter, a list, then the actions for one ADR. An invalid value counts as `fullscreen`, with a warning in the log. |
+
+The setting applies only in the terminal UI and is read each time an `/adr` command runs, so a change needs no restart.
 
 ## Working with other plugins
 
@@ -89,7 +120,7 @@ The plugin has no settings.
 
 | Host | Behavior |
 | --- | --- |
-| RPC (`--mode rpc`, `rpc-ui`) and ACP | The same menu and dialogs, sent as `select`, `input` and `editor` requests. ACP clients may show notices only in their log. |
+| RPC (`--mode rpc`, `rpc-ui`) and ACP | The inline menu and dialogs whatever `uiMenu` says, sent as `select`, `input` and `editor` requests. ACP clients may show notices only in their log. |
 | No UI (`--no-ui`, print, JSON, SDK) | No dialogs. Bare `/adr` prints the list and usage; use the subcommands. `/adr init` returns the preview and a token without writing; confirm with `/adr confirm <token>`. Notices become session messages. |
 
 Client programs can read the ADR status from a state snapshot; see the [reference](REFERENCE.md#state-snapshot).

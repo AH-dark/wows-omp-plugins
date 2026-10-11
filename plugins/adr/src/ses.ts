@@ -4,7 +4,8 @@ import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 import type { AdrUi } from "#src/ui.ts";
 
-export type UiFactory = (ctx: ExtensionContext) => AdrUi;
+/** Async because the terminal UI reads the `uiMenu` setting from `ctx.cwd` each time a UI is built. */
+export type UiFactory = (ctx: ExtensionContext) => Promise<AdrUi>;
 
 /** An `/adr init` preview no dialog could confirm, held until `/adr confirm <token>`. */
 export interface HeldPreview {
