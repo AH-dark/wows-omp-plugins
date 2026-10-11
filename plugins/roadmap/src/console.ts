@@ -26,9 +26,11 @@ import {
   topBorder,
 } from "@oh-my-pi/pi-tui/chrome";
 
+import { type AtlasStagePlan, type StageCoverage, stageCoverage } from "#src/atlas.ts";
 import { type Model, overdue, type RoundDoc, type StageDoc, type StageStatus, type TodoItem, today } from "#src/documents.ts";
+import { planLabel } from "#src/handoff.ts";
 import { byId, plannedRoundCounts, roundActual, schedule, stageReadiness } from "#src/state.ts";
-import type { PreviewFile, StatusMenuChoice } from "#src/ui.ts";
+import type { PreviewFile } from "#src/ui.ts";
 
 export type ConsoleSection = "stages" | "rounds" | "todos";
 
@@ -37,6 +39,8 @@ export interface ConsoleView {
   section: ConsoleSection;
   query: string;
   selected?: string;
+  /** The round whose stages Stages lists when it is not the active round. */
+  stageRound?: string;
 }
 
 /** The one-line result of the last action; `error` marks a refused or failed one. */
@@ -52,10 +56,20 @@ export interface ConsoleState {
   on?: string;
 }
 
-/** The same actions the inline status menu returns, plus the view to restore when the console reopens. */
-export interface ConsoleChoice extends StatusMenuChoice {
+/** What the console asks the command to do: the status menu's actions plus the typed planning actions it offers by key. */
+export type ConsoleAction = "check" | "close" | "close-round" | "new-round" | "plan-round" | "drop-round" | "retarget" | "upgrade";
+
+/** `stage` names the stage to close or retarget; `round` the planned round to revise or drop, or the round to retarget. */
+export interface ConsoleChoice {
+  action: ConsoleAction;
+  stage?: string;
+  round?: string;
+  /** The view to restore when the console reopens. */
   view: ConsoleView;
 }
+
+/** A stage's Atlas plans as omo-prometheus answers them; undefined when nothing answered. */
+export type StagePlans = (stage: string) => readonly AtlasStagePlan[] | undefined;
 
 export interface PreviewRequest {
   title: string;
@@ -340,16 +354,20 @@ abstract class SplitPane implements Component {
 }
 
 /**
- * The fullscreen `/roadmap` console: Stages of the active round, every Round and the Open TODOs as Tab sections,
- * the selected item's detail on the right. Actions close it with a {@link ConsoleChoice}; Esc closes with undefined.
+ * The fullscreen `/roadmap` console: the Stages of one round (the active round unless Enter on a round chose another),
+ * every Round and the Open TODOs as Tab sections, the selected item's detail on the right. Actions close it with a
+ * {@link ConsoleChoice}; Esc closes with undefined.
  */
 export class RoadmapConsole extends SplitPane {
   readonly #on: string;
   readonly #active: RoundDoc | undefined;
   readonly #nextPlanned: RoundDoc | undefined;
-  readonly #entries: Readonly<Record<ConsoleSection, Entry[]>>;
+  readonly #entries: Record<ConsoleSection, Entry[]>;
   /** The last selected id per section, so Tab returns to it. */
   readonly #remembered = new Map<ConsoleSection, string>();
+  /** Atlas plans per stage, asked once per showing. */
+  readonly #plans = new Map<string, readonly AtlasStagePlan[] | undefined>();
+  #stageRound: string | undefined;
   #section: ConsoleSection;
   #query: string;
   #visible: Entry[] = [];
@@ -361,18 +379,20 @@ export class RoadmapConsole extends SplitPane {
     theme: Theme,
     tui: TUI,
     readonly done: (choice: ConsoleChoice | undefined) => void,
+    readonly plans?: StagePlans,
   ) {
     super(theme, tui);
     this.#on = state.on ?? today();
     this.#active = model.rounds.find((round) => round.status === "active");
     this.#nextPlanned = model.rounds.filter((round) => round.status === "planned").sort(byId)[0];
+    const scope = state.view?.stageRound;
+    this.#stageRound = scope && model.rounds.some((round) => round.id === scope) ? scope : this.#active?.id;
     const rounds = [...model.rounds].sort(byId);
-    const stages = this.#active ? model.stages.filter((stage) => stage.round === this.#active?.id).sort(byId) : [];
     const todos = model.todos
       .flatMap((doc) => doc.items.filter((item) => item.status === "open").map((todo) => ({ todo, round: doc.round })))
       .sort((a, b) => byId(a.todo, b.todo));
     this.#entries = {
-      stages: stages.map((stage) => ({ kind: "stage", id: stage.id, title: stage.title, stage })),
+      stages: this.#stageEntries(),
       rounds: rounds.map((round) => ({ kind: "round", id: round.id, title: round.title, round })),
       todos: todos.map(({ todo, round }) => ({ kind: "todo", id: todo.id, title: todo.title, todo, round })),
     };
@@ -380,6 +400,17 @@ export class RoadmapConsole extends SplitPane {
     this.#query = state.view?.query ?? "";
     this.message = state.message;
     this.#refilter(state.view?.selected ?? this.#defaultSelection(this.#section));
+  }
+
+  #stageEntries(): Entry[] {
+    return this.model.stages
+      .filter((stage) => stage.round === this.#stageRound)
+      .sort(byId)
+      .map((stage) => ({ kind: "stage", id: stage.id, title: stage.title, stage }));
+  }
+
+  #activeStages(): StageDoc[] {
+    return this.model.stages.filter((stage) => stage.round === this.#active?.id);
   }
 
   #defaultSelection(section: ConsoleSection): string | undefined {
@@ -426,26 +457,40 @@ export class RoadmapConsole extends SplitPane {
 
   #view(): ConsoleView {
     const current = this.#current();
-    return { section: this.#section, query: this.#query, ...(current ? { selected: current.id } : {}) };
+    return {
+      section: this.#section,
+      query: this.#query,
+      ...(current ? { selected: current.id } : {}),
+      ...(this.#stageRound && this.#stageRound !== this.#active?.id ? { stageRound: this.#stageRound } : {}),
+    };
   }
 
-  #choose(choice: StatusMenuChoice): void {
+  #choose(choice: Omit<ConsoleChoice, "view">): void {
     if (this.#finished) return;
     this.#finished = true;
     this.done({ ...choice, view: this.#view() });
   }
 
   #roundSettled(): boolean {
-    return this.#entries.stages.every(
-      (entry) => entry.kind === "stage" && (entry.stage.status === "closed" || entry.stage.status === "dropped"),
-    );
+    return this.#activeStages().every((stage) => stage.status === "closed" || stage.status === "dropped");
   }
 
+  /** Lists the stages of `round` in Stages and selects `selectedId` there. */
+  #showStages(round: string, selectedId?: string): void {
+    if (round !== this.#stageRound) {
+      this.#stageRound = round;
+      this.#entries.stages = this.#stageEntries();
+      this.#remembered.delete("stages");
+    }
+    this.#switchTo("stages", selectedId);
+  }
+
+  /** Enter navigates: a stage to its round, a round to its stages, a TODO to its target. */
   #primary(): void {
     const entry = this.#current();
     if (!entry) this.message = { text: this.emptySidebar(), level: "info" };
-    else if (entry.kind === "stage") this.#choose({ action: "stage", stage: entry.id });
-    else if (entry.kind === "round") this.#choose({ action: "round", round: entry.id });
+    else if (entry.kind === "stage") this.#switchTo("rounds", entry.stage.round);
+    else if (entry.kind === "round") this.#showStages(entry.id);
     else this.#goToTarget(entry.todo);
   }
 
@@ -458,11 +503,8 @@ export class RoadmapConsole extends SplitPane {
       return;
     }
     const stage = this.model.stages.find((candidate) => candidate.id === item.target);
-    if (stage && stage.round === this.#active?.id) this.#switchTo("stages", stage.id);
-    else if (stage) {
-      this.#switchTo("rounds", stage.round);
-      this.message = { text: `${item.id} targets ${stage.id}, a stage of ${stage.round}`, level: "info" };
-    } else if (this.model.rounds.some((round) => round.id === item.target)) this.#switchTo("rounds", item.target);
+    if (stage) this.#showStages(stage.round, stage.id);
+    else if (this.model.rounds.some((round) => round.id === item.target)) this.#switchTo("rounds", item.target);
     else this.message = { text: `${item.id} targets ${item.target}, which is not in the roadmap`, level: "error" };
   }
 
@@ -484,6 +526,35 @@ export class RoadmapConsole extends SplitPane {
     else this.#choose({ action: "new-round" });
   }
 
+  /** Revising or dropping acts on the planned round selected in Rounds. */
+  #onPlannedRound(action: "plan-round" | "drop-round", verb: string): void {
+    const entry = this.#current();
+    if (entry?.kind === "round" && entry.round.status === "planned") this.#choose({ action, round: entry.id });
+    else this.message = { text: `Select a planned round in Rounds to ${verb} it`, level: "info" };
+  }
+
+  /** The unclosed stage or round whose target date can change; format 1 has no target dates. */
+  #retargetable(): Pick<ConsoleChoice, "stage" | "round"> | undefined {
+    const entry = this.#current();
+    if (this.model.index.format !== 2 || !entry || entry.kind === "todo") return undefined;
+    const status = entry.kind === "stage" ? entry.stage.status : entry.round.status;
+    if (status !== "planned" && status !== "active") return undefined;
+    return entry.kind === "stage" ? { stage: entry.id } : { round: entry.id };
+  }
+
+  #retarget(): void {
+    const target = this.#retargetable();
+    if (target) this.#choose({ action: "retarget", ...target });
+    else if (this.model.index.format !== 2)
+      this.message = { text: "Target dates need roadmap format 2; Shift+U upgrades the repository", level: "info" };
+    else this.message = { text: "Select an unclosed stage or round to change its target date", level: "info" };
+  }
+
+  #upgrade(): void {
+    if (this.model.index.format === 1) this.#choose({ action: "upgrade" });
+    else this.message = { text: "This repository already uses roadmap format 2", level: "info" };
+  }
+
   protected handleKey(key: string): void {
     if (matchesKey(key, "escape")) {
       if (this.#query) {
@@ -503,6 +574,10 @@ export class RoadmapConsole extends SplitPane {
     else if (key === "R" || matchesKey(key, "shift+r")) this.#closeRound();
     else if (key === "N" || matchesKey(key, "shift+n")) this.#newRound();
     else if (key === "P" || matchesKey(key, "shift+p")) this.#choose({ action: "plan-round" });
+    else if (key === "E" || matchesKey(key, "shift+e")) this.#onPlannedRound("plan-round", "revise");
+    else if (key === "D" || matchesKey(key, "shift+d")) this.#onPlannedRound("drop-round", "drop");
+    else if (key === "T" || matchesKey(key, "shift+t")) this.#retarget();
+    else if (key === "U" || matchesKey(key, "shift+u")) this.#upgrade();
     else if (matchesKey(key, "backspace")) {
       if (!this.#query) return;
       this.#query = [...this.#query].slice(0, -1).join("");
@@ -528,7 +603,7 @@ export class RoadmapConsole extends SplitPane {
     const planned = this.model.rounds.filter((candidate) => candidate.status === "planned").length;
     const open = this.#entries.todos.length;
     if (round) {
-      const stages = this.#entries.stages.flatMap((entry) => (entry.kind === "stage" ? [entry.stage] : []));
+      const stages = this.#activeStages();
       const settled = stages.filter((stage) => stage.status === "closed" || stage.status === "dropped").length;
       const late = stages.filter((stage) => overdue(stage, this.#on)).length;
       const dates = schedule(round, roundActual(round), this.#on);
@@ -552,8 +627,12 @@ export class RoadmapConsole extends SplitPane {
       ].join(" · ");
     }
     if (this.model.index.format === 1) summary += t.fg("dim", " · format 1");
+    // Stages names its round once Enter on another round chose it.
+    const stagesLabel = this.#stageRound && this.#stageRound !== round?.id ? `Stages ${this.#stageRound}` : SECTION_LABELS.stages;
     const tabs = renderSegmentTrack(
-      SECTIONS.map((section) => ({ label: `${SECTION_LABELS[section]} ${this.#entries[section].length}` })),
+      SECTIONS.map((section) => ({
+        label: `${section === "stages" ? stagesLabel : SECTION_LABELS[section]} ${this.#entries[section].length}`,
+      })),
       SECTIONS.indexOf(this.#section),
     );
     const search = this.#query
@@ -566,7 +645,7 @@ export class RoadmapConsole extends SplitPane {
   protected emptySidebar(): string {
     if (this.#query) return "Nothing matches the search; Esc clears it";
     if (this.#section === "stages") {
-      if (this.#active) return `${this.#active.id} has no stages yet`;
+      if (this.#stageRound) return `${this.#stageRound} has no stages yet`;
       return `No active round; Shift+N ${this.#nextPlanned ? `activates ${this.#nextPlanned.id}` : "opens a new round"}`;
     }
     if (this.#section === "rounds") return "No rounds yet";
@@ -600,14 +679,19 @@ export class RoadmapConsole extends SplitPane {
   protected hints(): string[] {
     const entry = this.#current();
     const round = this.#active;
+    const planned = entry?.kind === "round" && entry.round.status === "planned" ? entry.id : undefined;
+    const enter = entry?.kind === "todo" ? "go to target" : entry?.kind === "stage" ? "its round" : "its stages";
     return [
       ...this.navigationHints("select"),
-      ...(entry ? [rawKeyHint("enter", entry.kind === "todo" ? "go to target" : "post status")] : []),
+      ...(entry ? [rawKeyHint("enter", enter)] : []),
       rawKeyHint("tab", "section"),
       ...(entry?.kind === "stage" && entry.stage.status === "active" ? [rawKeyHint("shift+x", "close stage")] : []),
+      ...(planned ? [rawKeyHint("shift+e", `revise ${planned}`), rawKeyHint("shift+d", `drop ${planned}`)] : []),
+      ...(this.#retargetable() ? [rawKeyHint("shift+t", "target date")] : []),
       ...(round && this.#roundSettled() ? [rawKeyHint("shift+r", `close ${round.id}`)] : []),
       ...(!round ? [rawKeyHint("shift+n", this.#nextPlanned ? `activate ${this.#nextPlanned.id}` : "new round")] : []),
       rawKeyHint("shift+p", "plan a round"),
+      ...(this.model.index.format === 1 ? [rawKeyHint("shift+u", "upgrade to format 2")] : []),
       rawKeyHint("shift+c", "check"),
       rawKeyHint("escape", this.#query ? "clear search" : "close"),
     ];
@@ -673,6 +757,8 @@ export class RoadmapConsole extends SplitPane {
     if (adrs.length) detail.list("ADRs", adrs);
     const todos = this.#openTodos(stage.id);
     detail.list("TODOs", todos.length ? todos : [t.fg("dim", "none open")]);
+    detail.field("File", t.fg("dim", this.model.repo ? relative(this.model.repo.repoRoot, stage.path) : stage.path));
+    this.#plansDetail(detail, stage);
     detail.section("Objective", stage.objective);
     detail.section("In scope", stage.scope_in);
     detail.section("Out of scope", stage.scope_out);
@@ -682,6 +768,49 @@ export class RoadmapConsole extends SplitPane {
     detail.section("Amendments", stage.amendments);
     detail.section("Free-work log", stage.free_work_log);
     detail.section("Outcome", stage.outcome);
+  }
+
+  /** The same Atlas plan coverage the stage's status report lists; nothing without an answer from omo-prometheus. */
+  #plansDetail(detail: DetailLines, stage: StageDoc): void {
+    if (!this.#plans.has(stage.id)) this.#plans.set(stage.id, this.plans?.(stage.id));
+    const plans = this.#plans.get(stage.id);
+    if (!plans) return;
+    const t = this.theme;
+    detail.blank();
+    detail.lines.push(t.bold("Atlas plans"));
+    let coverage: StageCoverage;
+    try {
+      coverage = stageCoverage(stage, plans);
+    } catch (error) {
+      detail.text(t.fg("error", `Coverage unavailable: ${error instanceof Error ? error.message : String(error)}`));
+      return;
+    }
+    if (!plans.length) detail.text(t.fg("dim", "No Atlas plan is bound to this stage yet"));
+    for (const plan of plans) {
+      const mark = plan.status === "complete" ? t.fg("success", t.status.success) : t.fg("accent", t.status.running);
+      const declared = plan.criteria ? plan.criteria.join(", ") : "coverage undeclared";
+      const drift = coverage.drifted.includes(plan) ? t.fg("warning", " · drift") : "";
+      detail.text(`${mark} ${planLabel(plan)}${t.fg("dim", ` · ${plan.status} · ${plan.done}/${plan.total} rows · ${declared}`)}${drift}`);
+    }
+    for (const entry of coverage.criteria) {
+      detail.field(
+        entry.id,
+        entry.complete.length
+          ? t.fg("success", `covered by complete ${entry.complete.map(planLabel).join(", ")}`)
+          : entry.unfinished.length
+            ? t.fg("warning", `only by unfinished ${entry.unfinished.map(planLabel).join(", ")}`)
+            : t.fg("error", "uncovered"),
+      );
+    }
+    if (coverage.undeclared.length)
+      detail.text(t.fg("warning", `Coverage undeclared by ${coverage.undeclared.map(planLabel).join(", ")}; check their scope`));
+    if (coverage.drifted.length)
+      detail.text(
+        t.fg(
+          "warning",
+          `Drift: ${coverage.drifted.map(planLabel).join(", ")} approved before the objective, scope, criteria or design constraints changed`,
+        ),
+      );
   }
 
   #roundDetail(detail: DetailLines, round: RoundDoc): void {
@@ -695,6 +824,7 @@ export class RoadmapConsole extends SplitPane {
     if (round.target) detail.field("Target", `${round.target}${overdue(round, this.#on) ? t.fg("warning", " · overdue") : ""}`);
     const actual = roundActual(round);
     if (actual) detail.field("Dates", actual);
+    detail.field("File", t.fg("dim", this.model.repo ? relative(this.model.repo.repoRoot, round.path) : round.path));
     const stages = this.model.stages.filter((stage) => stage.round === round.id).sort(byId);
     const settled = stages.filter((stage) => stage.status === "closed" || stage.status === "dropped").length;
     detail.field("Stages", stages.length ? `${settled}/${stages.length} settled` : t.fg("dim", "none yet"));

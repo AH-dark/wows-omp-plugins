@@ -4,7 +4,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@o
 
 import type { AdrConnection } from "#src/adr.ts";
 import { check } from "#src/check.ts";
-import type { ConsoleMessage, ConsoleState } from "#src/console.ts";
+import type { ConsoleChoice, ConsoleMessage, ConsoleState } from "#src/console.ts";
 import {
   loadAll,
   loadRepo,
@@ -143,10 +143,11 @@ interface ActionResult {
   summary?: ConsoleMessage;
 }
 
-/** The console line for a receipt the command also posted: `done` (or the summary's first line) on success, else the refusal. */
-function resultLine(receipt: ToolReceipt, done?: string): ConsoleMessage {
-  if (!receipt.ok) return { text: receipt.reason.split("\n")[0] ?? "", level: "error" };
-  return { text: done ?? receipt.summary.split("\n")[0] ?? "", level: "info" };
+/** The console line for a receipt the command also posted: the summary's first line on success, else the refusal. */
+function resultLine(receipt: ToolReceipt): ConsoleMessage {
+  return receipt.ok
+    ? { text: receipt.summary.split("\n")[0] ?? "", level: "info" }
+    : { text: receipt.reason.split("\n")[0] ?? "", level: "error" };
 }
 
 export function registerCommands(
@@ -210,30 +211,34 @@ export function registerCommands(
     pi.sendMessage({ customType, content: [...text, ...(footer ? [footer] : [])].join("\n"), display: true });
   }
 
+  /** Shows a write preview; returns the console line for the written, refused or declined change. */
   async function commandPreview(
     ctx: ExtensionCommandContext,
+    ui: RoadmapUi,
     repo: Repo,
     kind: ArmedKind,
     build: () => Promise<PreparationReceipt>,
-  ): Promise<void> {
+    notice: RoadmapUi["notify"],
+  ): Promise<ActionResult> {
     ses.arm(ctx, repo.repoRoot, kind);
     const generation = ses.currentGeneration(ctx);
     const prepared = await build();
     if (!prepared.ok) {
       show(`wows-omp-roadmap.${kind}`, prepared);
-      return;
+      return { summary: resultLine(prepared) };
     }
-    const ui = uiFor(ctx);
     if (!ui.interactive) {
       show(`wows-omp-roadmap.${kind}`, awaitConfirmation(ses, ctx, generation, kind, repo, prepared.prepared));
-      return;
+      return {};
     }
     const confirmed = await ui.previewConfirm({ title: prepared.summary, root: repo.repoRoot, files: prepared.files });
     if (confirmed !== true) {
-      ui.notify(confirmed === false ? "Roadmap preview declined." : "Roadmap preview: no answer available.", "info");
-      return;
+      notice(confirmed === false ? "Roadmap preview declined." : "Roadmap preview: no answer available.", "info");
+      return {};
     }
-    show(`wows-omp-roadmap.${kind}`, await applyPreview(ses, ctx, kind, repo, actor(ctx), generation, prepared.prepared));
+    const receipt = await applyPreview(ses, ctx, kind, repo, actor(ctx), generation, prepared.prepared);
+    show(`wows-omp-roadmap.${kind}`, receipt);
+    return { summary: resultLine(receipt) };
   }
 
   /** Runs one /roadmap action; typed words, the inline status menu and the console all resolve to these actions. */
@@ -256,22 +261,31 @@ export function registerCommands(
       return { handoff: true };
     }
     if (action === "round") {
-      const receipt = await statusReceipt(repo, selectedStage);
-      show("wows-omp-roadmap.status", receipt);
-      return { summary: resultLine(receipt, `${selectedStage ?? "Roadmap"} status posted to the conversation`) };
+      show("wows-omp-roadmap.status", await statusReceipt(repo, selectedStage));
+      return {};
     }
     if (action === "upgrade") {
       if (words.length > 1) throw new Error("Usage: /roadmap upgrade");
-      await commandPreview(ctx, repo, "upgrade", () => prepareUpgrade(repo, actor(ctx)));
+      return await commandPreview(ctx, ui, repo, "upgrade", () => prepareUpgrade(repo, actor(ctx)), notice);
     } else if (action === "drop-round") {
       if (!words[1] || words.length < 3) throw new Error("Usage: /roadmap drop-round <id> <reason>");
-      await commandPreview(ctx, repo, "drop-round", () =>
-        prepareRoundDrop(repo, actor(ctx), { id: words[1] as string, reason: words.slice(2).join(" ") }),
+      return await commandPreview(
+        ctx,
+        ui,
+        repo,
+        "drop-round",
+        () => prepareRoundDrop(repo, actor(ctx), { id: words[1] as string, reason: words.slice(2).join(" ") }),
+        notice,
       );
     } else if (action === "retarget") {
       if (!words[1] || !words[2] || words.length !== 3) throw new Error("Usage: /roadmap retarget <round-or-stage> <YYYY-MM-DD|none>");
-      await commandPreview(ctx, repo, "retarget", () =>
-        prepareRetarget(repo, actor(ctx), { id: words[1] as string, target: words[2] as string }),
+      return await commandPreview(
+        ctx,
+        ui,
+        repo,
+        "retarget",
+        () => prepareRetarget(repo, actor(ctx), { id: words[1] as string, target: words[2] as string }),
+        notice,
       );
     } else if (action === "plan-round") {
       if (words.length > 2) throw new Error("Usage: /roadmap plan-round [<id>]");
@@ -287,9 +301,7 @@ export function registerCommands(
       return { handoff: true };
     } else if (action === "stage") {
       if (!selectedStage || words.length > 2) throw new Error("Usage: /roadmap stage <id>");
-      const receipt = await statusReceipt(repo, selectedStage, planLookup(pi.events, ctx, repo.repoRoot));
-      show("wows-omp-roadmap.status", receipt);
-      return { summary: resultLine(receipt, `${selectedStage} status posted to the conversation`) };
+      show("wows-omp-roadmap.status", await statusReceipt(repo, selectedStage, planLookup(pi.events, ctx, repo.repoRoot)));
     } else if (action === "check") {
       if (words.length > 2 || (words[1] && words[1] !== "--fix")) throw new Error("Usage: /roadmap check [--fix]");
       const receipt = await checkReceipt(repo, words[1] === "--fix");
@@ -405,9 +417,21 @@ export function registerCommands(
     return {};
   }
 
+  /** The typed words a console action stands for; drop and retarget ask their text in small dialogs. Undefined when dismissed. */
+  async function consoleWords(ui: RoadmapUi, model: Model, choice: ConsoleChoice): Promise<string[] | undefined> {
+    const id = choice.round ?? choice.stage;
+    if ((choice.action !== "drop-round" && choice.action !== "retarget") || !id) return [];
+    const current = [...model.rounds, ...model.stages].find((item) => item.id === id);
+    const answer =
+      choice.action === "drop-round"
+        ? await ui.input(`Drop planned round ${id}: reason`, "Why this round is no longer needed")
+        : await ui.input(`Target date for ${id} (now ${current?.target ?? "none"})`, "YYYY-MM-DD, or none to clear the target");
+    return answer?.trim() ? [choice.action, id, answer.trim()] : undefined;
+  }
+
   /**
-   * Atlas Dispatch style: an action that completes here reopens the console on the same item with a one-line result;
-   * an action that hands the next step to the model closes it and returns to the conversation. Esc closes it.
+   * Atlas Dispatch style: an action that completes here, previews included, reopens the console on the same item with a
+   * one-line result; an action that hands the next step to the model closes it and returns to the conversation. Esc closes it.
    */
   async function statusConsole(ctx: ExtensionCommandContext, ui: RoadmapUi, repo: Repo): Promise<void> {
     let state: ConsoleState = {};
@@ -416,25 +440,28 @@ export function registerCommands(
       const model = await loadAll(repo);
       rememberStages(model);
       const reviewed = reviewedRound(model);
-      const choice = await ui.statusConsole(model, state);
+      const choice = await ui.statusConsole(model, state, planLookup(pi.events, ctx, repo.repoRoot));
       if (!choice) return;
       const notices: ConsoleMessage[] = [];
       let result: ActionResult;
       try {
         if (choice.action === "close-round" && !reviewed) throw new Error("There is no reviewed active round to close.");
-        result = await perform(
-          ctx,
-          ui,
-          repo,
-          {
-            action: choice.action,
-            words: [],
-            selected: choice.stage ?? choice.round,
-            ...(reviewed ? { reviewedRound: reviewed } : {}),
-            model,
-          },
-          (text, level) => notices.push({ text, level: level === "error" ? "error" : "info" }),
-        );
+        const words = await consoleWords(ui, model, choice);
+        result = words
+          ? await perform(
+              ctx,
+              ui,
+              repo,
+              {
+                action: choice.action,
+                words,
+                selected: choice.stage ?? choice.round,
+                ...(reviewed ? { reviewedRound: reviewed } : {}),
+                model,
+              },
+              (text, level) => notices.push({ text, level: level === "error" ? "error" : "info" }),
+            )
+          : { summary: { text: "Nothing entered; nothing was written.", level: "info" } };
       } catch (error) {
         result = { summary: { text: error instanceof Error ? error.message : String(error), level: "error" } };
       }

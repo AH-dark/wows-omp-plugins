@@ -5,11 +5,12 @@ import { join } from "node:path";
 
 import { initTheme, type TUI, theme, visibleWidth } from "@oh-my-pi/pi-tui";
 
+import type { AtlasStagePlan } from "../plugins/roadmap/src/atlas.ts";
 import { type ConsoleChoice, type ConsoleState, type PreviewRequest, PreviewView, RoadmapConsole } from "../plugins/roadmap/src/console.ts";
 import { type Model, renderRound, renderStage } from "../plugins/roadmap/src/documents.ts";
 import { PACKAGE_NAME, parseUiMenu, type UiMenu, uiMenuReader } from "../plugins/roadmap/src/settings.ts";
 import { createTuiUi, HeadlessUi, type RoadmapUiContext } from "../plugins/roadmap/src/ui.ts";
-import { consoleModelFixture } from "./roadmap-fixtures.ts";
+import { consoleModelFixture, planFixture } from "./roadmap-fixtures.ts";
 
 beforeAll(async () => {
   await initTheme();
@@ -35,12 +36,41 @@ function tuiOf(rows: number): TUI {
   return { requestRender() {}, terminal: { rows } } as unknown as TUI;
 }
 
+/** Atlas answers: two plans for S05 (one drifted), none yet for S06; other stages get no answer, as without omo-prometheus. */
+const PLANS: Readonly<Record<string, AtlasStagePlan[]>> = {
+  S05: [
+    planFixture({ planId: "plan-a", name: "Card payments", stage: "S05", criteria: ["DC1"], status: "complete", done: 6, total: 6 }),
+    planFixture({
+      planId: "plan-b",
+      name: "Webhook hardening",
+      stage: "S05",
+      criteria: ["DC2"],
+      done: 2,
+      total: 5,
+      revision: "0".repeat(64),
+    }),
+  ],
+  S06: [],
+};
+
 function mount(model: Model = consoleModelFixture(), state: ConsoleState = {}, rows = 24) {
   const choices: Array<ConsoleChoice | undefined> = [];
-  const component = new RoadmapConsole(model, { on: ON, ...state }, theme, tuiOf(rows), (choice) => choices.push(choice));
+  const asked: string[] = [];
+  const component = new RoadmapConsole(
+    model,
+    { on: ON, ...state },
+    theme,
+    tuiOf(rows),
+    (choice) => choices.push(choice),
+    (stage) => {
+      asked.push(stage);
+      return PLANS[stage];
+    },
+  );
   return {
     component,
     choices,
+    asked,
     screen: (width = 100) => text(component.render(width)),
     type: (...keys: string[]) => {
       for (const key of keys) component.handleInput(key);
@@ -155,30 +185,66 @@ test("console typing searches the section; Esc clears the search first and then 
   expect(choices).toEqual([undefined]);
 });
 
-test("console Enter posts a stage's or round's status, carrying the view to restore", () => {
-  const stage = mount();
-  stage.type("s", "0", "5", KEY.enter);
-  expect(stage.choices).toEqual([{ action: "stage", stage: "S05", view: { section: "stages", query: "s05", selected: "S05" } }]);
-  // One answer per showing.
-  stage.type(KEY.enter, "C");
-  expect(stage.choices).toHaveLength(1);
-
-  const round = mount();
-  round.type(KEY.tab, KEY.down, KEY.enter);
-  expect(round.choices).toEqual([{ action: "round", round: "R3", view: { section: "rounds", query: "", selected: "R3" } }]);
+test("console Enter navigates without answering: a stage to its round, a round to its stages", () => {
+  const { screen, type, choices } = mount();
+  type(KEY.enter);
+  expect(screen()).toMatch(/R2 — Checkout and payments/);
+  type(KEY.down, KEY.enter);
+  // Stages now lists R3 and says so; its planned stage is selected.
+  expect(screen()).toMatch(/◀ Stages R3 1 ▶/);
+  expect(screen()).toMatch(/S09 — Refund API/);
+  type(KEY.enter);
+  expect(screen()).toMatch(/R3 — Refunds and disputes/);
+  type(KEY.up, KEY.up, KEY.enter);
+  expect(screen()).toMatch(/◀ Stages R1 2 ▶/);
+  expect(screen()).toMatch(/S01 — Product catalog/);
+  type(KEY.tab, KEY.down, KEY.enter);
+  expect(screen()).toMatch(/◀ Stages 5 ▶/);
+  expect(choices).toEqual([]);
+  // The stage list travels with the view, so a reopened console shows the same round's stages.
+  type(KEY.tab, KEY.down, KEY.enter, "C");
+  expect(choices).toEqual([{ action: "check", view: { section: "stages", query: "", selected: "S09", stageRound: "R3" } }]);
+  const reopened = mount(undefined, { view: { section: "stages", query: "", selected: "S09", stageRound: "R3" } });
+  expect(reopened.screen()).toMatch(/S09 — Refund API/);
 });
 
-test("console Enter on a TODO goes to its target, or explains a trigger or another round's stage", () => {
+test("console Enter on a TODO goes to its target in that round's stages, or explains a trigger", () => {
   const { screen, type, choices } = mount();
   type(KEY.tab, KEY.tab, KEY.enter);
   expect(screen()).toMatch(/S05 — Payment provider/);
-  expect(screen()).toMatch(/◀ Stages 5 ▶|Stages 5/);
+  expect(screen()).toMatch(/◀ Stages 5 ▶/);
   type(KEY.shiftTab, KEY.down, KEY.down, KEY.enter);
   expect(screen()).toMatch(/T012 waits on a trigger \(Traffic passes 1k orders a day\), not a stage/);
   type(KEY.down, KEY.enter);
-  expect(screen()).toMatch(/T014 targets S09, a stage of R3/);
-  expect(screen()).toMatch(/R3 — Refunds and disputes/);
+  expect(screen()).toMatch(/◀ Stages R3 1 ▶/);
+  expect(screen()).toMatch(/S09 — Refund API/);
   expect(choices).toEqual([]);
+});
+
+test("console stage detail shows the Atlas plan coverage the status report lists, asking once per stage", () => {
+  const { screen, type, asked } = mount(undefined, {}, 48);
+  const shown = screen(160);
+  expect(shown).toMatch(/Atlas plans/);
+  expect(shown).toMatch(/Card payments \(plan-a\) · complete · 6\/6 rows · DC1/);
+  expect(shown).toMatch(/Webhook hardening \(plan-b\) · unfinished · 2\/5 rows · DC2 · drift/);
+  expect(shown).toMatch(/DC1 {7}covered by complete Card payments \(plan-a\)/);
+  expect(shown).toMatch(/DC2 {7}only by unfinished Webhook hardening \(plan-b\)/);
+  expect(shown).toMatch(/Drift: Webhook hardening \(plan-b\) approved before/);
+  expect(shown).toMatch(/File {6}docs\/roadmap\/R2\/stages\/S05\.md/);
+  type(KEY.down);
+  expect(screen(160)).toMatch(/No Atlas plan is bound to this stage yet/);
+  expect(screen(160)).toMatch(/DC1 {7}uncovered/);
+  type(KEY.down);
+  // No answer, as without omo-prometheus: no plan section at all.
+  expect(screen(160)).not.toMatch(/Atlas plans/);
+  type(KEY.up, KEY.up);
+  screen(160);
+  expect(asked).toEqual(["S05", "S06", "S07"]);
+
+  const broken = consoleModelFixture();
+  const s05 = broken.stages.find((stage) => stage.id === "S05");
+  if (s05) s05.done_criteria = "not a criteria list";
+  expect(mount(broken).screen(160)).toMatch(/Coverage unavailable: /);
 });
 
 test("console secondary actions answer only where they apply and explain otherwise", () => {
@@ -194,9 +260,15 @@ test("console secondary actions answer only where they apply and explain otherwi
   expect(planned.screen()).toMatch(/Close or drop every stage of R2 before closing the round/);
   planned.type("X");
   expect(planned.screen()).toMatch(/Select an active stage in Stages to close it/);
+  planned.type("E");
+  expect(planned.screen()).toMatch(/Select a planned round in Rounds to revise it/);
+  planned.type("D");
+  expect(planned.screen()).toMatch(/Select a planned round in Rounds to drop it/);
+  planned.type("U");
+  expect(planned.screen()).toMatch(/This repository already uses roadmap format 2/);
   // Any key clears the message.
   planned.type(KEY.up);
-  expect(planned.screen()).not.toMatch(/Select an active stage/);
+  expect(planned.screen()).not.toMatch(/This repository already/);
 
   for (const [key, action] of [
     ["C", "check"],
@@ -207,6 +279,41 @@ test("console secondary actions answer only where they apply and explain otherwi
     run.type(key);
     expect(run.choices.map((choice) => choice?.action)).toEqual([action]);
   }
+
+  // Target dates: unclosed stages and rounds of a format-2 repository.
+  const stageTarget = mount();
+  expect(stageTarget.screen(160)).toMatch(/⇧T target date/);
+  stageTarget.type("T");
+  expect(stageTarget.choices).toEqual([{ action: "retarget", stage: "S05", view: { section: "stages", query: "", selected: "S05" } }]);
+  const closedStage = mount();
+  closedStage.type(KEY.home, "T");
+  expect(closedStage.screen()).toMatch(/Select an unclosed stage or round to change its target date/);
+  const roundTarget = mount();
+  roundTarget.type(KEY.tab, "T");
+  expect(roundTarget.choices.map((choice) => [choice?.action, choice?.round])).toEqual([["retarget", "R2"]]);
+
+  // Revise and drop act on the planned round selected in Rounds.
+  for (const [key, action] of [
+    ["E", "plan-round"],
+    ["D", "drop-round"],
+  ] as const) {
+    const run = mount();
+    run.type(KEY.tab, KEY.down);
+    expect(run.screen(160)).toMatch(/⇧E revise R3 {3}⇧D drop R3/);
+    run.type(key);
+    expect(run.choices).toEqual([{ action, round: "R3", view: { section: "rounds", query: "", selected: "R3" } }]);
+  }
+
+  // Format 1 has no target dates and offers the upgrade.
+  const legacy = consoleModelFixture();
+  legacy.index.format = 1;
+  const old = mount(legacy);
+  expect(old.screen(160)).toMatch(/⇧U upgrade to format 2/);
+  expect(old.screen(160)).not.toMatch(/target date/);
+  old.type("T");
+  expect(old.screen()).toMatch(/Target dates need roadmap format 2; Shift\+U upgrades the repository/);
+  old.type("U");
+  expect(old.choices.map((choice) => choice?.action)).toEqual(["upgrade"]);
 
   const settled = consoleModelFixture();
   for (const stage of settled.stages) if (stage.round === "R2" && stage.status !== "dropped") stage.status = "closed";

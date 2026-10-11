@@ -112,6 +112,9 @@ class ScriptedUi implements RoadmapUi {
   /** Console answers, one per showing; an exhausted script closes the console like Esc. */
   consoleChoices: Array<ConsoleChoice | undefined> = [];
   consoleCalls: Array<{ model: Model; state: ConsoleState }> = [];
+  /** Text answers, such as the console's target dates and drop reasons. */
+  inputs: Array<string | undefined> = [];
+  inputCalls: string[] = [];
 
   async overlap(q: OverlapQuestion) {
     this.overlapCalls.push(q);
@@ -134,6 +137,11 @@ class ScriptedUi implements RoadmapUi {
   async statusConsole(model: Model, state: ConsoleState) {
     this.consoleCalls.push({ model, state });
     return this.consoleChoices.shift();
+  }
+
+  async input(title: string) {
+    this.inputCalls.push(title);
+    return this.inputs.shift();
   }
 
   async closeRoundDispositions(_todos: Parameters<RoadmapUi["closeRoundDispositions"]>[0]) {
@@ -475,7 +483,7 @@ const CASES: Record<string, string> = {
   pending: "pending-close reminders retain evidence and remain bounded",
   menu: "status-menu stage close gives tool guidance without writing files",
   console:
-    "the fullscreen console reopens after local actions with their result, stays open on refusals, closes on hand-offs to the model, and the inline setting keeps the status menu",
+    "the fullscreen console reopens after local actions and previews launched from it with their result, stays open on refusals, Enter posts nothing, hand-offs to the model close it, and the inline setting keeps the status menu",
   preflight: "init command preflight rejects existing directories and non-git roots",
   "init-format-2": "a new repository starts at format 2: entering a session neither asks about nor announces an upgrade",
   "upgrade-prompt":
@@ -1675,27 +1683,40 @@ async function acceptance(name: string, root: string): Promise<void> {
     } else if (name === "console") {
       const repo = await initialized(root);
       assert((await stage(repo, main, { action: "start", id: "S01" })).ok);
+      await applyPreparation(repo, await prepareRoundPlan(repo, main, { round: growth }));
       h.ui.fullscreen = true;
       const view = { section: "stages" as const, query: "", selected: "S01" };
-      // Local actions reopen the console on the same item with a one-line result; Esc (an exhausted script) closes it.
+      // Local actions, previews included, reopen the console on the same item with a one-line result; refusals stay
+      // in it as errors; Esc (an exhausted script) closes it.
       h.ui.consoleChoices = [
         { action: "check", view },
-        { action: "stage", stage: "S01", view: { ...view, query: "s0" } },
+        { action: "retarget", stage: "S01", view },
+        { action: "retarget", stage: "S01", view },
+        { action: "retarget", stage: "S01", view },
         { action: "new-round", view },
       ];
+      h.ui.inputs = ["2026-12-01", "2026-12-15", "  "];
+      const confirms = [true, false];
+      h.ui.preview = async () => confirms.shift();
       await command(h, "roadmap");
-      assert.equal(h.ui.consoleCalls.length, 4);
-      assert.deepEqual(h.ui.consoleCalls[0]?.state, {});
-      assert.deepEqual(h.ui.consoleCalls[1]?.state.view, view);
-      assert.equal(h.ui.consoleCalls[1]?.state.message?.level, "info");
-      assert.match(h.ui.consoleCalls[1]?.state.message?.text ?? "", /Check passed; the report is in the conversation/);
-      assert.deepEqual(h.ui.consoleCalls[2]?.state.view, { ...view, query: "s0" });
-      assert.match(h.ui.consoleCalls[2]?.state.message?.text ?? "", /S01 status posted to the conversation/);
-      // A refused action stays in the console with the reason instead of a notification.
-      assert.deepEqual(h.ui.consoleCalls[3]?.state.message, { text: "Close the active round before opening another.", level: "error" });
+      const states = h.ui.consoleCalls.map((call) => call.state);
+      assert.equal(states.length, 6);
+      assert.deepEqual(states[0], {});
+      assert.deepEqual(states[1], { view, message: { text: "Check passed; the report is in the conversation", level: "info" } });
+      assert.deepEqual(states[2]?.message, { text: "Retargeted S01: none → 2026-12-01.", level: "info" });
+      assert.deepEqual(states[3]?.message, { text: "Roadmap preview declined.", level: "info" });
+      assert.deepEqual(states[4]?.message, { text: "Nothing entered; nothing was written.", level: "info" });
+      assert.deepEqual(states[5]?.message, { text: "Close the active round before opening another.", level: "error" });
+      assert.deepEqual(states[5]?.view, view);
+      assert.equal(h.ui.inputCalls.length, 3);
+      assert.match(h.ui.inputCalls[0] ?? "", /Target date for S01 \(now none\)/);
+      assert.match(h.ui.inputCalls[1] ?? "", /now 2026-12-01/);
+      assert.equal(h.ui.previewCalls.length, 2);
+      assert.equal((await loadAll(repo)).stages[0]?.target, "2026-12-01");
+      // Completed actions still post their receipts; declined, empty and refused ones post nothing.
       assert.equal(h.messages.length, 2);
       assert.match(h.messages[0] ?? "", /check passed/);
-      assert.match(h.messages[1] ?? "", /S01/);
+      assert.match(h.messages[1] ?? "", /Retargeted S01/);
       assert.equal(h.ui.notifications.length, 0);
       assert.equal(h.kickoffs.length, 0);
 
@@ -1714,7 +1735,72 @@ async function acceptance(name: string, root: string): Promise<void> {
       await command(h, "roadmap");
       assert.equal(h.ui.consoleCalls.length, 1);
       assert.equal(h.kickoffs.length, 1);
-      assert.match(h.kickoffs[0] ?? "", /roadmap_round_plan/);
+      assert.match(h.kickoffs[0] ?? "", /for a future planned round/);
+
+      // The real console and fullscreen preview, driven by keys: Enter navigates without posting, Shift+E hands the
+      // revision of R2 to the model, a preview launched from the console returns to it after Esc or Write.
+      // Like createHarness, host modules load after the child's isolated HOME is set.
+      const { theme } = await import("@oh-my-pi/pi-tui");
+      const scripts: string[][] = [];
+      const frames: string[] = [];
+      const answers: string[] = [];
+      h.setUi((ctx) =>
+        createTuiUi(
+          {
+            hasUI: true,
+            mode: "tui",
+            cwd: ctx.cwd,
+            ui: {
+              ...ctx.ui,
+              input: async (title) => {
+                answers.push(title);
+                return title.startsWith("Target") ? "2026-11-30" : "Merged into a later round";
+              },
+              custom: (async (factory: Parameters<typeof ctx.ui.custom>[0]) => {
+                const { promise, resolve } = Promise.withResolvers<unknown>();
+                const tui = { requestRender() {}, terminal: { rows: 24 } } as unknown as Parameters<typeof factory>[0];
+                const component = await factory(tui, theme, undefined as never, resolve);
+                frames.push(Bun.stripANSI(component.render(200).join("\n")));
+                for (const key of scripts.shift() ?? ["\x1b"]) component.handleInput?.(key);
+                return promise;
+              }) as unknown as typeof ctx.ui.custom,
+            },
+          },
+          { sendMessage: () => {} },
+          async () => "fullscreen",
+        ),
+      );
+      const posted = h.messages.length;
+      scripts.push(["\r", "\x1b"]);
+      await command(h, "roadmap");
+      assert.equal(frames.length, 1);
+      assert.match(frames[0] ?? "", /S01 — Checkout/);
+      assert.equal(h.messages.length, posted, "Enter navigates and posts nothing");
+
+      scripts.push(["\t", "\x1b[B", "E"]);
+      await command(h, "roadmap");
+      assert.equal(frames.length, 2);
+      assert.equal(h.kickoffs.length, 2);
+      assert.match(h.kickoffs[1] ?? "", /revise planned round R2/);
+
+      scripts.push(["T"], ["\x1b"], ["\x1b"]);
+      await command(h, "roadmap");
+      assert.equal(frames.length, 5);
+      assert.match(frames[3] ?? "", /Roadmap preview · 2 files[\s\S]*Retargeted S01: 2026-12-01 → 2026-11-30\./);
+      assert.match(frames[4] ?? "", /Roadmap preview declined\./);
+      assert.match(frames[4] ?? "", /S01 — Checkout/);
+      assert.equal((await loadAll(repo)).stages[0]?.target, "2026-12-01");
+
+      scripts.push(["\t", "\x1b[B", "D"], ["W"], ["\x1b"]);
+      await command(h, "roadmap");
+      assert.equal(frames.length, 8);
+      assert.equal((await loadAll(repo)).rounds.find((round) => round.id === "R2")?.status, "dropped");
+      assert.equal(h.messages.length, posted + 1);
+      const dropped = (h.messages.at(-1) ?? "").split("\n")[0] ?? "";
+      assert.match(dropped, /R2/);
+      assert((frames[7] ?? "").includes(dropped), frames[7] ?? "");
+      assert.deepEqual(answers, ["Target date for S01 (now 2026-12-01)", "Drop planned round R2: reason"]);
+      h.setUi(() => h.ui);
 
       // Closing the round runs its dialogs, writes, and reopens with the result.
       assert((await call(h, "roadmap_stage", { action: "drop", id: "S01", reason: "Defer" })).ok);
@@ -1722,10 +1808,10 @@ async function acceptance(name: string, root: string): Promise<void> {
       h.ui.consoleChoices = [{ action: "close-round", view: { section: "rounds", query: "", selected: "R1" } }];
       await command(h, "roadmap");
       assert.equal(h.ui.consoleCalls.length, 2);
-      assert.equal((await loadAll(repo)).rounds[0]?.status, "closed");
+      assert.equal((await loadAll(repo)).rounds.find((round) => round.id === "R1")?.status, "closed");
       assert.equal(h.ui.consoleCalls[1]?.state.message?.level, "info");
       assert.match(h.ui.consoleCalls[1]?.state.message?.text ?? "", /Closed and froze R1/);
-      assert.equal(h.ui.consoleCalls[1]?.model.rounds[0]?.status, "closed");
+      assert.equal(h.ui.consoleCalls[1]?.model.rounds.find((round) => round.id === "R1")?.status, "closed");
       assert.match(h.messages.at(-1) ?? "", /Closed and froze R1/);
 
       // The inline setting keeps the one-shot status menu.

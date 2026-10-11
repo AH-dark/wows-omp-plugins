@@ -2,7 +2,7 @@ import { relative } from "node:path";
 
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
-import { type ConsoleChoice, type ConsoleState, PreviewView, RoadmapConsole } from "#src/console.ts";
+import { type ConsoleChoice, type ConsoleState, PreviewView, RoadmapConsole, type StagePlans } from "#src/console.ts";
 import {
   type Model,
   overdue,
@@ -60,8 +60,10 @@ export interface RoadmapUi {
   previewConfirm(p: { title: string; root: string; files: PreviewFile[] }): Promise<boolean | undefined>;
   /** Whether bare `/roadmap` opens the fullscreen console now: a terminal UI with the uiMenu setting `fullscreen`. */
   fullscreenMenu(): Promise<boolean>;
-  /** One showing of the fullscreen console; undefined when the user closes it. */
-  statusConsole(m: Model, state: ConsoleState): Promise<ConsoleChoice | undefined>;
+  /** One showing of the fullscreen console; undefined when the user closes it. `plans` answers a stage's Atlas plans. */
+  statusConsole(m: Model, state: ConsoleState, plans?: StagePlans): Promise<ConsoleChoice | undefined>;
+  /** A one-line text answer, such as a target date; undefined when dismissed. */
+  input(title: string, placeholder: string): Promise<string | undefined>;
   /** The inline status menu. `on` (YYYY-MM-DD, default today) decides which unfinished targets are overdue. */
   statusMenu(m: Model, on?: string): Promise<StatusMenuChoice | undefined>;
   closeRoundDispositions(todos: TodoItem[]): Promise<RoundTodoDispositionChoice[] | undefined>;
@@ -95,6 +97,10 @@ export class HeadlessUi implements RoadmapUi {
   }
 
   async statusConsole(): Promise<undefined> {
+    return undefined;
+  }
+
+  async input(): Promise<undefined> {
     return undefined;
   }
 
@@ -232,8 +238,10 @@ export function createTuiUi(ctx: RoadmapUiContext, pi: RoadmapMessenger, uiMenu?
 
     fullscreenMenu: fullscreen,
 
-    statusConsole: (m, state) =>
-      ui.custom<ConsoleChoice | undefined>((tui, theme, _keys, done) => new RoadmapConsole(m, state, theme, tui, done), FULLSCREEN),
+    statusConsole: (m, state, plans) =>
+      ui.custom<ConsoleChoice | undefined>((tui, theme, _keys, done) => new RoadmapConsole(m, state, theme, tui, done, plans), FULLSCREEN),
+
+    input: (title, placeholder) => ui.input(title, placeholder),
 
     statusMenu(m, on = today()) {
       const round = m.rounds.find((candidate) => candidate.status === "active");

@@ -127,9 +127,22 @@ omp plugin config set wows-omp-plugin-roadmap uiMenu inline
 | --- | --- | --- | --- |
 | `uiMenu` | `fullscreen` \| `inline` | `fullscreen` | How `/roadmap` and write previews look in the terminal. |
 
-With `fullscreen`, `/roadmap` opens a console that fills the terminal. Tab switches between the active round's stages, all rounds and open TODOs. The right pane shows the selected item: status, target and actual dates, dependencies, linked ADRs, open TODOs and its text. Type to search. Enter posts the selected stage's or round's status to the conversation, or jumps from a TODO to its stage. Shift+X closes a stage, Shift+R closes the round, Shift+N opens or activates the next round, Shift+P plans a round and Shift+C runs the check. Esc closes the console.
+With `fullscreen`, `/roadmap` opens a console that fills the terminal. Tab switches between stages, all rounds and open TODOs. The right pane shows everything about the selected item: status, target and actual dates, dependencies, linked ADRs, open TODOs, its text and, with `omo-prometheus`, which Atlas plans cover each done criterion. Type to search. Enter moves around: from a stage to its round, from a round to its stages, from a TODO to its stage. Stages lists the active round until you pick another round this way.
 
-A check or a round close finishes inside the console, so it reopens on the same item with a one-line result. Closing a stage, planning a round and opening a round need the agent, so the console closes and you continue in the chat; for a stage close it leaves a note on what to ask for. The round-close questions stay small dialogs.
+| Key | Action |
+| --- | --- |
+| Shift+X | Close the selected active stage (the agent does it). |
+| Shift+R | Close the active round. |
+| Shift+N | Open a new round, or activate the next planned one. |
+| Shift+P | Plan a new round. |
+| Shift+E | Revise the selected planned round. |
+| Shift+D | Drop the selected planned round. |
+| Shift+T | Change the target date of the selected round or stage. |
+| Shift+U | Upgrade a format-1 repository to format 2. |
+| Shift+C | Run the check. |
+| Esc | Clear the search, then close the console. |
+
+Checks and round closes finish inside the console, and so do drops, target dates and upgrades once you answer their write preview. The console then comes back on the same item with a one-line result, or a note that you declined, and the result is also posted in the chat. Closing a stage, planning or revising a round and opening a round need the agent, so the console closes and you continue in the chat; for a stage close it leaves a note on what to ask for. Short answers such as a date, a drop reason or the round-close questions stay small dialogs.
 
 Write previews list the files on the left and show the selected one on the right; Space switches between rendered and raw text. Shift+W or the Write row writes every file. Esc or Cancel writes nothing.
 
