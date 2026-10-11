@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/omp-herdr-dag@0.6.0...omp-herdr-dag@0.6.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* **omp-herdr-dag:** keep a dismissed pane closed when Atlas releases its plan ([43f7ffb](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/43f7ffb65ef24d21a699241af6be53a9b6059d86))
+
 ## [0.6.0](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/omp-herdr-dag@0.5.0...omp-herdr-dag@0.6.0) (2026-10-10)
 
 

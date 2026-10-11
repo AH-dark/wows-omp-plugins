@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/roadmap@0.5.1...roadmap@0.6.0) (2026-10-11)
+
+
+### Features
+
+* **roadmap:** add a fullscreen console behind the uiMenu setting ([c7729f6](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/c7729f63c75ef1f2ed48900625332eda5e53b7b1))
+* **roadmap:** show Atlas coverage and planning actions in the console ([55fa6c3](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/55fa6c36384b0332ec3309d40ac07827605e3718))
+
 ## [0.5.1](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/roadmap@0.5.0...roadmap@0.5.1) (2026-10-10)
 
 

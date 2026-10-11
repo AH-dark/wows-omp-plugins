@@ -22,6 +22,20 @@
 - Reopen and block affect only the named row, serialize ledger updates with atomic file replacement, and reopen historical completions lacking proof on resume.
 - Require final native task success after isolation postprocessing; reject early completion events and invalidate older receipts without final-result proof.
 
+## [0.22.0](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/omo-prometheus@0.21.0...omo-prometheus@0.22.0) (2026-10-11)
+
+
+### Features
+
+* **omo-prometheus:** add an opt-in progressReports setting for Atlas ([743e4e7](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/743e4e79e37d1c7c63805757242ad2ae7cda4d6e))
+* **omo-prometheus:** give Atlas progress reports a fixed field layout ([fbefd7c](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/fbefd7ccada0675aa8bf7625a8c6bc3f51f334f9))
+* **omo-prometheus:** hold Atlas questions until only blocked rows remain, then ask ([ae7c04e](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/ae7c04ed8802288f609e43bc9a59802b666f4bc0))
+
+
+### Bug Fixes
+
+* **omo-prometheus:** keep Atlas from treating blocking questions as optional to avoid asking ([4fde398](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/4fde398b062771626d5b3c381f84bbaf88fc7253))
+
 ## [0.21.0](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/omo-prometheus@0.20.1...omo-prometheus@0.21.0) (2026-10-10)
 
 

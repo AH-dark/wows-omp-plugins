@@ -15,7 +15,7 @@
       "name": "adr",
       "source": "./adr",
       "description": "Tool-managed MADR architecture decision records",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "author": {
         "name": "TheOrdinaryWow"
       },
@@ -65,7 +65,7 @@
       "name": "omp-herdr-dag",
       "source": "./omp-herdr-dag",
       "description": "Live todo, plan, Atlas DAG and subagent views in a Herdr side pane",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "author": {
         "name": "TheOrdinaryWow"
       },
@@ -82,7 +82,7 @@
       "name": "omo-prometheus",
       "source": "./omo-prometheus",
       "description": "Port of oh-my-openagent Prometheus planning and Atlas orchestration for OMP",
-      "version": "0.21.0",
+      "version": "0.22.0",
       "author": {
         "name": "TheOrdinaryWow"
       },
@@ -140,7 +140,7 @@
       "name": "roadmap",
       "source": "./roadmap",
       "description": "Tool-managed project rounds, stages and TODOs, with stage-linked ADRs through the adr plugin",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "author": {
         "name": "TheOrdinaryWow"
       },

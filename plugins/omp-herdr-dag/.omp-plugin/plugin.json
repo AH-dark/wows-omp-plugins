@@ -1,6 +1,6 @@
 {
   "name": "omp-herdr-dag",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Live todo, plan, Atlas DAG and subagent views in a Herdr side pane",
   "author": {
     "name": "TheOrdinaryWow"
