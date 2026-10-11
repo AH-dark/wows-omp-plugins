@@ -127,7 +127,7 @@ omp plugin config set wows-omp-plugin-roadmap uiMenu inline
 | --- | --- | --- | --- |
 | `uiMenu` | `fullscreen` \| `inline` | `fullscreen` | How `/roadmap` and write previews look in the terminal. |
 
-With `fullscreen`, `/roadmap` opens a console that fills the terminal. Tab switches between stages, all rounds and open TODOs. The right pane shows everything about the selected item: status, target and actual dates, dependencies, linked ADRs, open TODOs, its text and, with `omo-prometheus`, which Atlas plans cover each done criterion. Type to search. Enter moves around: from a stage to its round, from a round to its stages, from a TODO to its stage. Stages lists the active round until you pick another round this way.
+With `fullscreen`, `/roadmap` opens a console that fills the terminal. Tab switches between stages, rounds and open TODOs, and typing searches the list. The right pane shows the selected item in full: status, dates, dependencies, linked ADRs, open TODOs and its text. With `omo-prometheus` installed it also shows which Atlas plans cover each done criterion. Enter jumps between related items: a stage to its round, a round to its stages, a TODO to its stage. The stage list shows the active round until you open another round's stages this way.
 
 | Key | Action |
 | --- | --- |
@@ -142,7 +142,7 @@ With `fullscreen`, `/roadmap` opens a console that fills the terminal. Tab switc
 | Shift+C | Run the check. |
 | Esc | Clear the search, then close the console. |
 
-Checks and round closes finish inside the console, and so do drops, target dates and upgrades once you answer their write preview. The console then comes back on the same item with a one-line result, or a note that you declined, and the result is also posted in the chat. Closing a stage, planning or revising a round and opening a round need the agent, so the console closes and you continue in the chat; for a stage close it leaves a note on what to ask for. Short answers such as a date, a drop reason or the round-close questions stay small dialogs.
+Checks, round closes, drops, target dates and upgrades finish in the console. Once you answer the write preview, the console comes back on the same item with a one-line result, and the full result also goes to the chat. Closing a stage, opening a round and planning or revising one need the agent, so the console closes and you carry on in the chat. For a stage close, a notice tells you what to ask for. Short answers, like a date, a drop reason or the round-close questions, stay small dialogs.
 
 Write previews list the files on the left and show the selected one on the right; Space switches between rendered and raw text. Shift+W or the Write row writes every file. Esc or Cancel writes nothing.
 
