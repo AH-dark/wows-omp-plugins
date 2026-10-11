@@ -89,7 +89,7 @@ test("frames fill the terminal and never exceed the width, including empty and n
     expect(lines).toHaveLength(rows);
     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
   }
-  expect(text(mount([]).component.render(80))).toMatch(/No ADRs yet; press Shift\+C/);
+  expect(text(mount([]).component.render(80))).toMatch(/No ADRs yet; press Shift\+O/);
 });
 
 test("arrows move the selection and the detail pane shows the selected decision", () => {
@@ -130,8 +130,8 @@ test("Enter asks to decide, offered shortcuts act, and refused ones explain why"
   expect(text(component.render(100))).toMatch(/Accept is not available for ADR-0001 \(accepted\)/);
   component.handleInput("\r");
   component.handleInput("S");
+  component.handleInput("O");
   component.handleInput("C");
-  component.handleInput("V");
   expect(results.map(({ result }) => result)).toEqual([
     { kind: "decide", id: "ADR-0001" },
     { kind: "action", action: "supersede", id: "ADR-0001" },

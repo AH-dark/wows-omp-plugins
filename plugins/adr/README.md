@@ -73,8 +73,9 @@ With the default `uiMenu: fullscreen`, `/adr` fills the terminal. ADRs are liste
 | Enter | Choose a decision for the selected ADR in a small dialog. |
 | Shift+A, R, D | Accept, reject or deprecate the selected ADR, when its status allows it. |
 | Shift+N, S | Append a note, or supersede an accepted or deprecated ADR. |
-| Shift+C | Start a new decision. |
-| Shift+V, F | Run the check, or run it and regenerate the index. |
+| Shift+O | Start a new decision. |
+| Shift+C | Run the check. |
+| Shift+F | Run the check and regenerate the index. |
 | Esc | Clear the search, then close. |
 
 Accepting, rejecting, deprecating, adding a note and running the check reopen the console on the same ADR, with the result in one line above the key hints. The full result also goes to the conversation. Starting a new decision or a supersession closes the console, because the agent interviews you next. Cancelling their topic dialog brings you back to the console.

@@ -43,8 +43,8 @@ export const DECISION_KEYS = [
 export type DecisionAction = (typeof DECISION_KEYS)[number][1];
 export type GlobalAction = "new" | "check" | "check-fix";
 const GLOBAL_KEYS: ReadonlyArray<readonly [string, GlobalAction, string]> = [
-  ["C", "new", "new decision"],
-  ["V", "check", "check"],
+  ["O", "new", "new decision"],
+  ["C", "check", "check"],
   ["F", "check-fix", "check + index"],
 ];
 
@@ -364,7 +364,7 @@ export class AdrConsole implements Component {
       return wrapTextWithAnsi(
         t.fg(
           "dim",
-          this.entries.length ? "No ADRs match; Esc clears the search, Tab changes the filter" : "No ADRs yet; press Shift+C to start one",
+          this.entries.length ? "No ADRs match; Esc clears the search, Tab changes the filter" : "No ADRs yet; press Shift+O to start one",
         ),
         width,
       );
