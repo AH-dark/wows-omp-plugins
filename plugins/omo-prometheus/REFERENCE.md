@@ -54,6 +54,8 @@ Every `task` call from the Atlas parent is either bound or research:
 
 Isolation follows the host settings. While `task.isolation.enabled` is on, every T, D, X and P1 dispatch must pass `isolated: true`; gates, verifiers and research children may go either way. Host patch merges apply an isolated child's work to the checkout uncommitted and drop its commits, so when `task.isolation.merge` is `patch`, the first isolated dispatch switches it to `branch` as a runtime override and says so once. Atlas exit, a switch to a session that is not executing, and session shutdown restore it; the saved setting is never written.
 
+Gates and verifiers return their verdicts through the host's structured task results. Since omp 18.10.2 the `task` tool offers `outputSchema` and `schemaMode` only while `task.structured` is on, and it is off by default, so while Atlas executes it turns `task.structured` on as a runtime override and says so once. The same events restore it, and older hosts, which always offer both fields, are left alone.
+
 ## Agent fallbacks
 
 Prometheus plans and Momus reviews against the agents the session's `task` tool lists. A user-defined agent is valid only if listed.

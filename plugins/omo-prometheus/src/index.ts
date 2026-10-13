@@ -73,6 +73,7 @@ import {
   type RoadmapStage,
   type RoadmapStageAnswer,
 } from "./roadmap-contract.ts";
+import { forceStructuredResults, restoreStructuredResults } from "./structured-results.ts";
 import {
   ATLAS_USAGE,
   type AtlasCompletionPlan,
@@ -480,7 +481,16 @@ export default function prometheus(pi: ExtensionAPI): void {
     return restored;
   };
 
-  const syncTools = async (wantActivate: boolean, wantRelease: boolean, wantLedger: boolean): Promise<void> => {
+  /** `wantLedger` means Atlas executes, which also needs the host's structured task results for gates and verifiers. */
+  const syncTools = async (ctx: ExtensionContext, wantActivate: boolean, wantRelease: boolean, wantLedger: boolean): Promise<void> => {
+    const live = mainSession(ctx);
+    if (live && !wantLedger) restoreStructuredResults(live);
+    else if (live && forceStructuredResults(live)) {
+      notify(
+        ctx,
+        "Atlas turned on task.structured while it executes, so gates and verifiers can return their schema-checked results. Your setting returns when Atlas exits.",
+      );
+    }
     try {
       const active = pi.getActiveTools();
       const desired = new Set(active);
@@ -955,7 +965,7 @@ export default function prometheus(pi: ExtensionAPI): void {
     record.lastContinuationLedgerStamp = undefined;
     record.stallCount = 0;
     persist(ctx, record);
-    await syncTools(false, false, false);
+    await syncTools(ctx, false, false, false);
     if (proposalPath) await clearProposalMarker(ctx, proposalPath);
     await settleDetached();
     await refreshAtlasCompletions(ctx);
@@ -1252,7 +1262,7 @@ export default function prometheus(pi: ExtensionAPI): void {
       record.roadmapStage = plan.roadmapStage;
       persist(ctx, record);
       await bindPlan(ctx, record, store, plan, true);
-      await syncTools(false, true, true);
+      await syncTools(ctx, false, true, true);
       retitleSession(ctx, plan);
       let modelNotice = "";
       try {
@@ -1282,7 +1292,7 @@ export default function prometheus(pi: ExtensionAPI): void {
       if (record.activation !== activation) return;
       record.ledgerError = errorMessage(error);
       publishState(ctx);
-      await syncTools(false, true, true);
+      await syncTools(ctx, false, true, true);
       await refreshAtlasCompletions(ctx);
       commandNotice(ctx, pauseMessage(record), "error");
     }
@@ -1747,7 +1757,7 @@ export default function prometheus(pi: ExtensionAPI): void {
           record.approvalCompactionPending = false;
           record.offerPendingForModeEntryId = undefined;
           persist(ctx, record);
-          await syncTools(false, false, false);
+          await syncTools(ctx, false, false, false);
         }
       }
       return undefined;
@@ -1934,7 +1944,7 @@ export default function prometheus(pi: ExtensionAPI): void {
           details: {},
         };
       }
-      await syncTools(false, false, false);
+      await syncTools(ctx, false, false, false);
       return {
         content: [
           {
@@ -2488,7 +2498,7 @@ export default function prometheus(pi: ExtensionAPI): void {
       injected = await atlasBlock(ctx, record);
     }
 
-    await syncTools(wantActivate, executing, executing);
+    await syncTools(ctx, wantActivate, executing, executing);
     if (!injected) return undefined;
     return { systemPrompt: [...event.systemPrompt, injected] };
   });
@@ -2744,7 +2754,7 @@ export default function prometheus(pi: ExtensionAPI): void {
         } else {
           record.suppressedForModeEntryId = episodeId;
           persist(ctx, record);
-          await syncTools(false, false, false);
+          await syncTools(ctx, false, false, false);
         }
       }
       return undefined;
@@ -2792,7 +2802,7 @@ export default function prometheus(pi: ExtensionAPI): void {
     const approvedInResult = event.content.some((part) => part.type === "text" && part.text.trimStart().startsWith("Plan approved at "));
     if (approvedInResult && live.getPlanModeState()?.enabled !== true && planReferencesMatch(live.getPlanReferencePath(), proposedPath)) {
       await enterExecution(ctx, record);
-      await syncTools(false, true, true);
+      await syncTools(ctx, false, true, true);
     }
     return undefined;
   });
@@ -2817,7 +2827,7 @@ export default function prometheus(pi: ExtensionAPI): void {
     if (record?.phase === "planning" && record.approvalCompactionPending === true) {
       record.compactHandoffPending = true;
       await enterExecution(ctx, record);
-      await syncTools(false, true, true);
+      await syncTools(ctx, false, true, true);
     }
   });
 
@@ -2886,7 +2896,7 @@ export default function prometheus(pi: ExtensionAPI): void {
       live.setPlanReferencePath(DEFAULT_PLAN_REFERENCE);
     }
     const executing = restored?.phase === "executing";
-    await syncTools(false, executing, executing);
+    await syncTools(ctx, false, executing, executing);
     publishState(ctx);
   };
 
@@ -2927,6 +2937,7 @@ export default function prometheus(pi: ExtensionAPI): void {
     if (live) {
       restoreApprovalTiers(live);
       restoreIsolationMerge(live);
+      restoreStructuredResults(live);
     }
     const sessionId = ctx.sessionManager.getSessionId();
     plansSessions.delete(ctx.sessionManager);

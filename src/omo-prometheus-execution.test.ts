@@ -1919,6 +1919,22 @@ async function scenario(name: string, root: string): Promise<void> {
     refused(await gitTool({ action: "status" }));
     return;
   }
+  if (name === "structured-results") {
+    // Host modules load only inside the isolated child process, after HOME is private.
+    const { lookup } = await import("@oh-my-pi/pi-coding-agent/config/registry");
+    const structured = lookup("task.structured");
+    // Hosts before 18.10.2 register no such setting and always offer outputSchema and schemaMode.
+    if (!structured) return;
+    // Gates and verifiers need outputSchema and schemaMode, which the host offers only while task.structured is on.
+    assert.equal(structured.get(settings), true);
+    await hook("before_agent_start", { prompt: "Continue", systemPrompt: [] });
+    assert.equal(notices.filter((notice) => notice.includes("task.structured")).length, 1);
+    // Leaving execution puts the user's setting back without leaving a runtime layer behind.
+    await hook("session_shutdown");
+    assert.equal(structured.get(settings), false);
+    assert.equal(settings.getProvenance(structured), "default");
+    return;
+  }
   if (name === "isolation-required" || name === "non-git-workspace") {
     // Host modules load only inside the isolated child process, after HOME is private.
     const { cfgTaskIsolationEnabled, cfgTaskIsolationMerge } = await import("@oh-my-pi/pi-coding-agent/task/settings");
@@ -2193,6 +2209,7 @@ if (process.env[CHILD_ENV]) {
       "heavy-verify",
       "heavy-verify-fail",
       "research-children",
+      "structured-results",
       "isolation-required",
       "non-git-workspace",
       "atlas-git",
