@@ -23,6 +23,13 @@
 - Reopen and block affect only the named row, serialize ledger updates with atomic file replacement, and reopen historical completions lacking proof on resume.
 - Require final native task success after isolation postprocessing; reject early completion events and invalidate older receipts without final-result proof.
 
+## [0.22.1](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/omo-prometheus@0.22.0...omo-prometheus@0.22.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **omo-prometheus:** turn on structured task results while Atlas executes ([9a1ceb0](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/9a1ceb07c36e035427a21dea731ea244d8185e57))
+
 ## [0.22.0](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/omo-prometheus@0.21.0...omo-prometheus@0.22.0) (2026-10-11)
 
 

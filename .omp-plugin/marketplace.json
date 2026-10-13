@@ -82,7 +82,7 @@
       "name": "omo-prometheus",
       "source": "./omo-prometheus",
       "description": "Port of oh-my-openagent Prometheus planning and Atlas orchestration for OMP",
-      "version": "0.22.0",
+      "version": "0.22.1",
       "author": {
         "name": "TheOrdinaryWow"
       },
