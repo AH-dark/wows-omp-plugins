@@ -60,6 +60,24 @@ REFERENCE*.md                  plugin-state snapshot envelope shared by plugins
   expanded arrays (`biome.json` override) because release-please rewrites them
   that way.
 
+## Host version floor
+
+The floor (the oldest omp every plugin supports, currently 18.5.1) is ours to
+raise; users of this marketplace are not expected to stay on old hosts. Decided
+by the maintainer:
+
+- Do not write compatibility code for hosts below the newest release that has
+  what we need: no version probes, feature detection of host APIs, fallback
+  paths or shims. Raise the floor instead.
+- When a newer release offers an interface that makes a plugin simpler or more
+  reliable, adopting it and raising the floor is allowed without asking first.
+- One floor covers every plugin. Raising it moves together: the CI matrix entry
+  in `.github/workflows/ci.yml`, the requirement line in the root and every
+  plugin README (English and Chinese), the version in this file, and the
+  deletion of code, tests and docs that existed only for hosts below the new
+  floor. Commit it as a `fix` touching each affected plugin so release-please
+  records it in their changelogs, as 217da70 did.
+
 ## The constraint that governs everything
 
 Marketplace installation **copies the plugin directory and symlinks it** into
@@ -177,7 +195,7 @@ tracks a newer release, so CI covers both ends. The SDK harness uses
 background provider requests during isolated tests. Before relying on a new host
 API, type-check a throwaway copy against the floor
 (`bun add -d @oh-my-pi/pi-coding-agent@18.5.1`). If the floor lacks an API,
-raise the CI matrix entry and documented requirements instead of adding a shim.
+raise the floor (see "Host version floor") instead of adding a shim.
 
 Judging goes through OMP's `judge` role (`resolveJudge`); the plugin keeps no
 credentials or provider settings of its own. It judges only when the chain's
