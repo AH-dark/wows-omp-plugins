@@ -1826,8 +1826,16 @@ async function scenario(name: string, root: string): Promise<void> {
       input: { ...input, schemaMode: "permissive" },
     })) as { block?: boolean } | undefined;
     assert.equal(loose?.block, true);
-    const verifier: PreparedAssignment = { item: current, current: await ledger(), toolCallId: `dispatch-${sequence++}`, input };
-    assert.equal(await hook("tool_call", { toolName: "task", toolCallId: verifier.toolCallId, input }), undefined);
+    const notObject = (await hook("tool_call", {
+      toolName: "task",
+      toolCallId: `dispatch-${sequence++}`,
+      input: { ...input, outputSchema: "[]" },
+    })) as { block?: boolean } | undefined;
+    assert.equal(notObject?.block, true);
+    // Strict tool-schema providers (OpenAI Responses) can only send the schema as JSON text, which the host parses.
+    const textInput = { ...input, outputSchema: JSON.stringify(input.outputSchema) };
+    const verifier: PreparedAssignment = { item: current, current: await ledger(), toolCallId: `dispatch-${sequence++}`, input: textInput };
+    assert.equal(await hook("tool_call", { toolName: "task", toolCallId: verifier.toolCallId, input: textInput }), undefined);
     // The implementer's own completion never counts as the independent verification.
     refused(await done("T1", "Implementer"));
     const verdict = name === "heavy-verify" ? "PASS" : "FAIL";

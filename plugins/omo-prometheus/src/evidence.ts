@@ -55,6 +55,19 @@ function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * The host takes a task `outputSchema` as an object or as its JSON text, which it parses. Providers with strict tool
+ * schemas (OpenAI Responses) narrow the object branch to `{}`, so their models can only send the text form.
+ */
+function suppliesObjectSchema(value: unknown): boolean {
+  if (typeof value !== "string") return object(value);
+  try {
+    return object(JSON.parse(value));
+  } catch {
+    return false;
+  }
+}
+
 /** The exact outputSchema given to a native gate child; it overrides any agent-native prose format. */
 export function gateOutputSchema(ledger: ExecutionLedger, row: LedgerItem): Record<string, unknown> {
   return {
@@ -208,7 +221,7 @@ export class ChildEvidence {
           if ((task.agent ?? "task") !== verification.dispatchAgent) {
             throw new Error(`${id} verification requires dispatch agent ${verification.dispatchAgent}`);
           }
-          if (Object.keys(entries).length !== 1 || !object(task.outputSchema) || task.schemaMode !== "strict") {
+          if (Object.keys(entries).length !== 1 || !suppliesObjectSchema(task.outputSchema) || task.schemaMode !== "strict") {
             throw new Error("Each verification needs its own fresh child with the supplied outputSchema and schemaMode strict");
           }
         } else {
@@ -217,7 +230,10 @@ export class ChildEvidence {
           }
           if (row.receipt) throw new Error(`${id} implementation is already recorded; dispatch its verifier with atlas_ledger verify`);
           if ((task.agent ?? "task") !== row.dispatchAgent) throw new Error(`${id} requires dispatch agent ${row.dispatchAgent}`);
-          if (id.startsWith("F") && (Object.keys(entries).length !== 1 || !object(task.outputSchema) || task.schemaMode !== "strict")) {
+          if (
+            id.startsWith("F") &&
+            (Object.keys(entries).length !== 1 || !suppliesObjectSchema(task.outputSchema) || task.schemaMode !== "strict")
+          ) {
             throw new Error("Each final gate needs its own fresh child with the supplied outputSchema and schemaMode strict");
           }
           if (options.isolationRequired && !id.startsWith("F") && task.isolated !== true) {

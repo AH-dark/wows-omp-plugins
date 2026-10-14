@@ -54,7 +54,7 @@ Atlas 父会话的每次 `task` 调用，要么是绑定调用，要么是调研
 
 隔离跟随宿主设置。`task.isolation.enabled` 开启时，每次派发 T、D、X 和 P1 都必须传入 `isolated: true`；关口、验证者和调研子代理可以隔离，也可以不隔离。宿主的 patch 合并会把隔离子代理的改动以未提交状态放进工作区，并丢掉它的提交，所以 `task.isolation.merge` 为 `patch` 时，第一次隔离派发会以运行时覆盖的方式把它切到 `branch`，并提示一次。退出 Atlas、切换到不在执行中的会话、会话关闭时都会恢复原值，已保存的设置不会被改写。
 
-关口和验证者通过宿主的结构化任务结果返回结论。从 omp 18.10.2 起，`task` 工具只在 `task.structured` 开启时才提供 `outputSchema` 和 `schemaMode`，而它默认关闭，所以 Atlas 执行期间会以运行时覆盖的方式开启 `task.structured`，并提示一次。上述同样的时机会恢复原值；始终提供这两个字段的旧宿主不受影响。
+关口和验证者通过宿主的结构化任务结果返回结论。从 omp 18.10.2 起，`task` 工具只在 `task.structured` 开启时才提供 `outputSchema` 和 `schemaMode`，而它默认关闭，所以 Atlas 执行期间会以运行时覆盖的方式开启 `task.structured`，并提示一次。上述同样的时机会恢复原值；始终提供这两个字段的旧宿主不受影响。schema 可以是对象，也可以是它的 JSON 文本，由宿主解析；使用严格工具 schema 的提供方（例如 OpenAI Responses）上的模型只能发送文本形式。
 
 ## 代理回退
 

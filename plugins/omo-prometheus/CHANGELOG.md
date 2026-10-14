@@ -22,6 +22,7 @@
 - Authenticate completion with native owned-child results and persistent receipts; require distinct fresh structured gate verifiers, with F1–F4 running together and a rejecting gate rerunning alone after its fix rows.
 - Reopen and block affect only the named row, serialize ledger updates with atomic file replacement, and reopen historical completions lacking proof on resume.
 - Require final native task success after isolation postprocessing; reject early completion events and invalidate older receipts without final-result proof.
+- Accept a gate or verifier `outputSchema` sent as JSON text, the only form models on strict tool-schema providers such as OpenAI Responses can send; every such dispatch used to be refused.
 
 ## [0.22.1](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/omo-prometheus@0.22.0...omo-prometheus@0.22.1) (2026-10-13)
 
