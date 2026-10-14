@@ -1,6 +1,6 @@
 {
   "name": "judge-dispatch",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Route OMP subagent types with native judge-role judgments",
   "author": {
     "name": "TheOrdinaryWow"

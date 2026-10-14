@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/adr@0.2.0...adr@0.2.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* raise supported OMP floor to 18.10.4 ([9bdda2e](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/9bdda2ea3a1c547f8cd3447439819654ba448182))
+
 ## [0.2.0](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/adr@0.1.1...adr@0.2.0) (2026-10-11)
 
 

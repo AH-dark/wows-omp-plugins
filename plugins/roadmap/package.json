@@ -1,6 +1,6 @@
 {
   "name": "wows-omp-plugin-roadmap",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "private": true,
   "description": "Tool-managed project rounds, stages and TODOs, with stage-linked ADRs through the adr plugin",

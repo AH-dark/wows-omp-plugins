@@ -1,6 +1,6 @@
 {
   "name": "wows-omp-plugin-omo-toolkit",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "private": true,
   "description": "Port of oh-my-openagent category agents, research agents, skills, and documentation MCPs for OMP",

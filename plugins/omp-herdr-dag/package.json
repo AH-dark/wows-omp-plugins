@@ -1,6 +1,6 @@
 {
   "name": "wows-omp-plugin-omp-herdr-dag",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "private": true,
   "description": "Live todo, plan, Atlas DAG and subagent views in a Herdr side pane",
