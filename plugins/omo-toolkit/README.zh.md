@@ -10,7 +10,7 @@
 omp plugin install omo-toolkit@wows-omp-plugins
 ```
 
-需要 OMP 18.5.1 或更高版本。安装后重启会话。
+需要 OMP 18.10.4 或更高版本。安装后重启会话。
 
 ## 快速上手
 

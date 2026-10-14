@@ -57,7 +57,6 @@ function routeLine(route: ParsedTaskRoute, item: Record<string, unknown>, outcom
   const model = choice?.model;
   const fit = model?.fit === undefined ? "" : ` (fit ${model.fit.toFixed(2)})`;
   if (route.explicitModel) parts.push(`model pinned to ${singleLine(route.explicitModel)}`);
-  else if (route.modelPinned) parts.push("model pinned by call");
   else if (model?.chosen && model.chosen.key !== model.primary)
     parts.push(`model ${singleLine(model.primary)} → ${singleLine(model.chosen.key)}${fit}`);
   else if (model?.chosen) parts.push(`model ${singleLine(model.primary)} kept${fit}`);

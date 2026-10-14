@@ -12,7 +12,7 @@ omp plugin install omp-herdr-dag@wows-omp-plugins
 
 需要：
 
-- OMP 18.5.1 或更高版本，并在 Herdr 中以交互方式运行（必须设置 `HERDR_ENV`、`HERDR_PANE_ID` 和 `HERDR_SOCKET_PATH`）；
+- OMP 18.10.4 或更高版本，并在 Herdr 中以交互方式运行（必须设置 `HERDR_ENV`、`HERDR_PANE_ID` 和 `HERDR_SOCKET_PATH`）；
 - `PATH` 中有 `herdr` CLI；
 - Bun：`PATH` 中有 `bun`，或在 `viewerRuntime` 中指定路径。
 

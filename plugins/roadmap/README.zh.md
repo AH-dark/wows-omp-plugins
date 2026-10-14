@@ -14,7 +14,7 @@
 omp plugin install roadmap@wows-omp-plugins
 ```
 
-需要 OMP 18.5.1 或更高版本、本地 Git 仓库以及 `adr` 插件（`omp plugin install adr@wows-omp-plugins`）；安装并启用两者后开启新会话。任何 `git init` 得到的工作树都可以，不需要远程仓库；在 Git 仓库之外，命令和工具都会拒绝。缺少 adr 插件时，`/roadmap`、`/init-project` 和所有 `roadmap_*` 工具都会拒绝并给出上述安装提示，但对 `docs/roadmap/` 的编辑仍会被阻止。在已有路线图的仓库中，主会话还会在每个会话中显示一次该提示，并且每回合的路线图上下文会换成一行说明：安装 adr 插件之前路线图不可用。插件附带 `roadmap` 技能。
+需要 OMP 18.10.4 或更高版本、本地 Git 仓库以及 `adr` 插件（`omp plugin install adr@wows-omp-plugins`）；安装并启用两者后开启新会话。任何 `git init` 得到的工作树都可以，不需要远程仓库；在 Git 仓库之外，命令和工具都会拒绝。缺少 adr 插件时，`/roadmap`、`/init-project` 和所有 `roadmap_*` 工具都会拒绝并给出上述安装提示，但对 `docs/roadmap/` 的编辑仍会被阻止。在已有路线图的仓库中，主会话还会在每个会话中显示一次该提示，并且每回合的路线图上下文会换成一行说明：安装 adr 插件之前路线图不可用。插件附带 `roadmap` 技能。
 
 ## 快速上手
 

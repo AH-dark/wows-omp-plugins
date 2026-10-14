@@ -14,7 +14,7 @@ Keeps a project roadmap in your repository as Markdown, maintained by the agent 
 omp plugin install roadmap@wows-omp-plugins
 ```
 
-Requires OMP 18.5.1 or newer, a local Git repository and the `adr` plugin (`omp plugin install adr@wows-omp-plugins`); enable both and start a new session after installing. Any `git init` work tree works and no remote is needed; outside a Git repository the commands and tools refuse. Without the adr plugin, `/roadmap`, `/init-project` and every `roadmap_*` tool refuse with that install hint, while edits to `docs/roadmap/` stay blocked. In a repository with a roadmap, the main session also shows the hint once per session, and each turn's roadmap context is replaced by one line saying roadmap is unavailable until the adr plugin is installed. The plugin ships the `roadmap` skill.
+Requires OMP 18.10.4 or newer, a local Git repository and the `adr` plugin (`omp plugin install adr@wows-omp-plugins`); enable both and start a new session after installing. Any `git init` work tree works and no remote is needed; outside a Git repository the commands and tools refuse. Without the adr plugin, `/roadmap`, `/init-project` and every `roadmap_*` tool refuse with that install hint, while edits to `docs/roadmap/` stay blocked. In a repository with a roadmap, the main session also shows the hint once per session, and each turn's roadmap context is replaced by one line saying roadmap is unavailable until the adr plugin is installed. The plugin ships the `roadmap` skill.
 
 ## Quick start
 

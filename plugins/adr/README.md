@@ -12,7 +12,7 @@ Keeps architecture decision records (ADRs) in `docs/adr/` as Markdown in the [MA
 omp plugin install adr@wows-omp-plugins
 ```
 
-Requires OMP 18.5.1 or newer and a local Git repository. Any `git init` work tree works and no remote is needed; outside a Git repository the commands and tools refuse. Start a new session after installing. The plugin ships the `adr` skill and a pinned MADR 4.0 template.
+Requires OMP 18.10.4 or newer and a local Git repository. Any `git init` work tree works and no remote is needed; outside a Git repository the commands and tools refuse. Start a new session after installing. The plugin ships the `adr` skill and a pinned MADR 4.0 template.
 
 ## Quick start
 

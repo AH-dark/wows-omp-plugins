@@ -12,7 +12,7 @@ English | [简体中文](README.zh.md)
 omp plugin install audit-goal@wows-omp-plugins
 ```
 
-Requires OMP 18.5.1 or newer with goal mode enabled (`goal.enabled`, on by default). Restart the session after installing.
+Requires OMP 18.10.4 or newer with goal mode enabled (`goal.enabled`, on by default). Restart the session after installing.
 
 ## Quick start
 

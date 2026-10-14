@@ -10,7 +10,7 @@
 omp plugin install omo-ultrawork@wows-omp-plugins
 ```
 
-需要 OMP 18.5.1 或更高版本。`/ulw-research` 还需要 `PATH` 中有 `node` 才能生成报告。安装后重启会话。
+需要 OMP 18.10.4 或更高版本。`/ulw-research` 还需要 `PATH` 中有 `node` 才能生成报告。安装后重启会话。
 
 ## 快速上手
 

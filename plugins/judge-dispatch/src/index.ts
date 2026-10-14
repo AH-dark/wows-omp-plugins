@@ -300,7 +300,7 @@ async function judgeRoute(
   const candidates = config.routeAgent ? routable : routable.filter((candidate) => candidate.name === spawnAgent);
   if (candidates.length === 0) return "no alternatives";
   const routesAgent = config.routeAgent && candidates.length >= 2;
-  const modelOptions = config.selectModel && !route.modelPinned ? modelCriteria(candidates) : {};
+  const modelOptions = config.selectModel && route.explicitModel === undefined ? modelCriteria(candidates) : {};
   const judgesModel = Object.keys(modelOptions).length >= 2;
   const judgesDifficulty = config.judgeEffort || judgesModel;
   if (!routesAgent && !judgesDifficulty) return "no alternatives";
@@ -394,7 +394,6 @@ function routeChoice(
   candidates: readonly RoutingCandidate[],
   pending: PendingSpawnRoutes,
 ): RouteChoice | undefined {
-  if (route.modelPinned && route.name && !route.explicitModel) pending.add(route.name, null);
   if (typeof judged === "string") return undefined;
   const choice: RouteChoice = {
     ...(judged.agent ? { agent: judged.agent, agentConfidence: judged.agentConfidence } : {}),
@@ -402,7 +401,7 @@ function routeChoice(
       ? { effort: DIFFICULTY_EFFORT[judged.difficulty], effortConfidence: judged.difficultyConfidence }
       : {}),
   };
-  if (!config.selectModel || route.modelPinned) return choice;
+  if (!config.selectModel || route.explicitModel !== undefined) return choice;
 
   const agent = judged.agent ?? route.requestedAgent ?? DEFAULT_SPAWN_AGENT;
   const pool = candidates.find((candidate) => candidate.name === agent)?.model.pool ?? [];
@@ -501,7 +500,6 @@ function applyPins(
       throw new Error(`write the agent as <agent>@<model role> or <agent>@<provider>/<model>, not ${JSON.stringify(label)}`);
     }
     if (isWorkflowOwnedAgent(route.requestedAgent)) throw new Error(`workflow-owned agent ${route.requestedAgent} keeps its own model`);
-    if (route.modelPinned) throw new Error(`task item ${label} already sets its model`);
     try {
       return explicitSpawnModel(route.explicitModel, ctx);
     } catch (error) {
@@ -522,7 +520,7 @@ function applyPins(
     input: rewriteTaskRoutes(input, routes, choices),
     routes: routes.map((route, index) => {
       const model = models[index];
-      return model ? { ...route, modelPinned: true, explicitModel: model.target } : route;
+      return model ? { ...route, explicitModel: model.target } : route;
     }),
     confirmation: `judge-dispatch rewrote the pinned items of this task call before they ran: ${applied.join("; ")}. OMP shows and stores that rewrite in place of the call you wrote, which is why your call lists the bare agent and the new name; the pin is in effect, so do not re-dispatch.`,
   };

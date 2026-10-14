@@ -32,7 +32,6 @@ describe("task input routing", () => {
         index: null,
         assignment: "Review the authentication boundary",
         requestedAgent: "task",
-        modelPinned: false,
       },
     ]);
     expect(rewriteTaskRoutes(input, routes, [{ agent: "security-reviewer" }])).toEqual({
@@ -88,30 +87,6 @@ describe("task input routing", () => {
     });
     expect(input.tasks[0]?.agent).toBe("task");
     expect(input.tasks[2]).not.toHaveProperty("effort");
-  });
-
-  test("records only own model keys as pins and preserves them through agent and effort routing", () => {
-    for (const model of ["@default", ["@slow", "openai/gpt-5"], undefined]) {
-      const item = { agent: "task", task: "Inspect the boundary", model };
-      for (const input of [item, { context: "shared", tasks: [item] }]) {
-        const routes = parseTaskInput(input);
-        if (!routes) throw new Error("expected valid pinned task input");
-        expect(routes[0]?.modelPinned).toBe(true);
-        const rewritten = rewriteTaskRoutes(input, routes, [{ agent: "scout", effort: "hi" }]);
-        expect(rewritten).toEqual(
-          "tasks" in input ? { ...input, tasks: [{ ...item, agent: "scout", effort: "hi" }] } : { ...item, agent: "scout", effort: "hi" },
-        );
-      }
-    }
-    const inherited = Object.assign(Object.create({ model: "@slow" }), { task: "Inspect the boundary" });
-    expect(parseTaskInput(inherited)?.[0]?.modelPinned).toBe(false);
-    expect(parseTaskInput({ context: "shared", tasks: [inherited] })?.[0]?.modelPinned).toBe(false);
-  });
-
-  test("leaves batch-level model keys untouched for the host to reject", () => {
-    for (const model of ["@default", ["@slow"], undefined]) {
-      expect(parseTaskInput({ context: "shared", tasks: [{ task: "Inspect the boundary" }], model })).toBeUndefined();
-    }
   });
 
   test("leaves malformed task shapes unparsed", () => {
@@ -341,7 +316,6 @@ describe("pinned task models", () => {
         assignment: "Inspect the boundary",
         requestedAgent: "scout",
         explicitModel: "openai/gpt-5-mini:high",
-        modelPinned: false,
         name: "Review",
       },
     ]);
@@ -363,9 +337,6 @@ describe("pinned task models", () => {
     expect(parsed("@abliterated")).toEqual(expect.objectContaining({ explicitModel: "abliterated" }));
     expect(parsed("@abliterated")?.requestedAgent).toBeUndefined();
     expect(parsed("scout@")).toEqual(expect.objectContaining({ requestedAgent: "scout", explicitModel: "" }));
-    expect(parseTaskInput({ task: "Inspect the boundary", agent: "scout@abliterated", model: "openai/gpt-5" })?.[0]).toEqual(
-      expect.objectContaining({ requestedAgent: "scout", explicitModel: "abliterated", modelPinned: true }),
-    );
   });
 
   test("each claim gets a unique spawn name that only its own spawn key consumes once; a pinned name without a claim is lost", () => {

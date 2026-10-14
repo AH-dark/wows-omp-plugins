@@ -10,7 +10,7 @@ English | [简体中文](README.zh.md)
 omp plugin install omo-ultrawork@wows-omp-plugins
 ```
 
-Requires OMP 18.5.1 or newer. `/ulw-research` also needs `node` on `PATH` to build its report. Restart the session after installing.
+Requires OMP 18.10.4 or newer. `/ulw-research` also needs `node` on `PATH` to build its report. Restart the session after installing.
 
 ## Quick start
 

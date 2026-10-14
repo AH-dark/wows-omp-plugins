@@ -12,7 +12,7 @@
 omp plugin install audit-goal@wows-omp-plugins
 ```
 
-需要 OMP 18.5.1 或更高版本，并启用目标模式（`goal.enabled`，默认开启）。安装后重启会话。
+需要 OMP 18.10.4 或更高版本，并启用目标模式（`goal.enabled`，默认开启）。安装后重启会话。
 
 ## 快速上手
 

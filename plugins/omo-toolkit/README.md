@@ -10,7 +10,7 @@ Category agents, a research agent, workflow skills and two documentation MCP ser
 omp plugin install omo-toolkit@wows-omp-plugins
 ```
 
-Requires OMP 18.5.1 or newer. Restart the session after installing.
+Requires OMP 18.10.4 or newer. Restart the session after installing.
 
 ## Quick start
 

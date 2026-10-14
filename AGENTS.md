@@ -40,7 +40,7 @@ REFERENCE*.md                  plugin-state snapshot envelope shared by plugins
 
 - `.github/workflows/ci.yml` runs lint, the catalog check, type check, and tests
   on every push and PR. Types and tests run twice: against the omp version in
-  `bun.lock` and against 18.5.1, the oldest host the plugins support. Raise
+  `bun.lock` and against 18.10.4, the oldest host the plugins support. Raise
   that matrix entry only together with the documented floor. Types and tests
   are skipped for the release PR, for its `chore: release main` merge, and for
   changes that touch only `README*.md`, `REFERENCE*.md`, `CHANGELOG.md`,
@@ -62,7 +62,7 @@ REFERENCE*.md                  plugin-state snapshot envelope shared by plugins
 
 ## Host version floor
 
-The floor (the oldest omp every plugin supports, currently 18.5.1) is ours to
+The floor (the oldest omp every plugin supports, currently 18.10.4) is ours to
 raise; users of this marketplace are not expected to stay on old hosts. Decided
 by the maintainer:
 
@@ -179,8 +179,8 @@ silently dropping the pin. The plugin renames the pinned item to a unique spawn
 name. Do not move the pin to a separate tool or an extra item field: that
 reintroduces cross-round state or breaks under strict schemas. `eval.agent()` and
 `workpool()` remain unrouted and cannot be pinned.
-OMP 18.5.0 introduced a per-item `task.model` field, but 18.8.2 removed it; older
-hosts keep that field pinned when present. The plugin never changes the user's
+OMP 18.5.0 introduced a per-item `task.model` field, but 18.8.2 removed it, so
+the plugin no longer reads it. The plugin never changes the user's
 global model roles or fallback settings.
 An earlier "enhanced" mode used a hypothetical routing API that no OMP release
 shipped and was removed. Build only on host surfaces exposed by released OMP.
@@ -189,12 +189,12 @@ It derives its legal agent set from the live `task` tool description and reads
 its settings on every call from `ctx.cwd` (never `process.cwd()`), because plugin
 settings are project-scoped and several sessions can share one process.
 
-Its runtime floor, like every plugin's, is omp 18.5.1; the locked dev dependency
+Its runtime floor, like every plugin's, is omp 18.10.4; the locked dev dependency
 tracks a newer release, so CI covers both ends. The SDK harness uses
 `CreateAgentSessionOptions.cacheWarming`, introduced in 18.3.5, to prevent
 background provider requests during isolated tests. Before relying on a new host
 API, type-check a throwaway copy against the floor
-(`bun add -d @oh-my-pi/pi-coding-agent@18.5.1`). If the floor lacks an API,
+(`bun add -d @oh-my-pi/pi-coding-agent@18.10.4`). If the floor lacks an API,
 raise the floor (see "Host version floor") instead of adding a shim.
 
 Judging goes through OMP's `judge` role (`resolveJudge`); the plugin keeps no

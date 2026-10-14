@@ -62,7 +62,6 @@ export interface ParsedTaskRoute {
   assignment: string;
   context?: string;
   requestedAgent?: string;
-  modelPinned: boolean;
   /** Model role or `provider/model` selector the caller pinned after `@` in the agent field (`scout@abliterated`). */
   explicitModel?: string;
   /** Spawn label the caller supplied, if any. */
@@ -199,7 +198,7 @@ export function parseTaskInput(input: unknown): ParsedTaskRoute[] | undefined {
 
   if (Object.hasOwn(record, "tasks")) {
     if (!Array.isArray(record.tasks) || record.tasks.length === 0) return undefined;
-    if (Object.hasOwn(record, "task") || Object.hasOwn(record, "model")) return undefined;
+    if (Object.hasOwn(record, "task")) return undefined;
     const context = optionalNonEmptyString(record.context);
     if (!context) return undefined;
 
@@ -216,7 +215,6 @@ export function parseTaskInput(input: unknown): ParsedTaskRoute[] | undefined {
         assignment,
         context,
         ...agentFields(item.agent),
-        modelPinned: Object.hasOwn(item, "model"),
         ...(name ? { name } : {}),
       });
     }
@@ -234,7 +232,6 @@ export function parseTaskInput(input: unknown): ParsedTaskRoute[] | undefined {
       assignment,
       ...(context ? { context } : {}),
       ...agentFields(record.agent),
-      modelPinned: Object.hasOwn(record, "model"),
       ...(name ? { name } : {}),
     },
   ];
@@ -438,7 +435,7 @@ const SPAWN_SUFFIX_PATTERN = /-\d+$/;
 export class PendingSpawnRoutes {
   #routes = new Map<string, PendingSpawnRoute | null>();
 
-  add(name: string, route: PendingSpawnRoute | null): void {
+  add(name: string, route: PendingSpawnRoute): void {
     if (this.#routes.has(name)) {
       this.#routes.set(name, null);
       return;

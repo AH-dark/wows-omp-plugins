@@ -431,72 +431,6 @@ async function registerTests(): Promise<void> {
       });
     });
 
-    test("pinned models keep their selectors and names while agent and effort routing still apply", async () => {
-      const modelPool = ["openai/gpt-5", "openai/gpt-5-mini"];
-      const flat = { task: "Inspect the boundary", agent: "task", model: modelPool[0] };
-      const batch = {
-        context: "shared",
-        tasks: [{ ...flat, name: "Pinned", model: modelPool }, flat],
-      };
-      const invalidBatch = { ...batch, model: modelPool[0] };
-      const spawn = { spawnKey: "parent.Pinned", agent: "scout", patterns: [modelPool[0]] };
-      await withProjects([{ selectModel: true, modelBudget: "minimum", judgeEffort: true }], async ([project]) => {
-        const report = await runIsolatedScenario({
-          sessions: [
-            { project: project as string, calls: 3, inputs: [flat, batch, invalidBatch], spawns: [spawn] },
-            { project: project as string, calls: 1, inputs: [{ task: flat.task, agent: "task", name: "Pinned" }], spawns: [spawn] },
-          ],
-          response: "success",
-          hostKey: HOST_KEY,
-          modelPool,
-        });
-        expect(report.sessions[0]?.results).toEqual([
-          { input: { ...flat, agent: "scout", effort: "hi" } },
-          { input: { ...batch, tasks: batch.tasks.map((item) => ({ ...item, agent: "scout", effort: "hi" })) } },
-          null,
-        ]);
-        expect(report.sessions[0]?.spawnResults).toEqual([null]);
-        expect(report.sessions[0]?.notifications).toEqual([
-          { message: "judge-dispatch  task → scout (0.99) · effort default → hi (0.99) · model pinned by call", level: "info" },
-          {
-            message:
-              "judge-dispatch  #1 task → scout (0.99) · effort default → hi (0.99) · model pinned by call ; #2 task → scout (0.99) · effort default → hi (0.99) · model pinned by call",
-            level: "info",
-          },
-        ]);
-        expect(report.requests.map((request) => Object.keys(JSON.parse(request.body).questions))).toEqual([
-          ["agent", "difficulty"],
-          ["agent", "difficulty"],
-          ["agent", "difficulty"],
-          ["agent", "difficulty", "model"],
-        ]);
-        expect(report.sessions[1]?.spawnResults, diagnostics(report)).toEqual([
-          expect.objectContaining({ model: [modelPool[1], modelPool[0]] }),
-        ]);
-      });
-    });
-
-    test("a pinned item cannot consume another pending model switch with the same name", async () => {
-      const modelPool = ["openai/gpt-5", "openai/gpt-5-mini"];
-      const task = { task: "Inspect the boundary", agent: "task", name: "Shared" };
-      await withProjects([{ selectModel: true, modelBudget: "minimum" }], async ([project]) => {
-        const report = await runIsolatedScenario({
-          sessions: [
-            {
-              project: project as string,
-              calls: 1,
-              inputs: [{ context: "shared", tasks: [task, { ...task, model: modelPool[0] }] }],
-              spawns: [{ spawnKey: "parent.Shared", agent: "scout", patterns: [modelPool[0]] }],
-            },
-          ],
-          response: "success",
-          hostKey: HOST_KEY,
-          modelPool,
-        });
-        expect(report.sessions[0]?.spawnResults).toEqual([null]);
-      });
-    });
-
     test("a pinned role keeps judged agent and effort routing but skips judge model selection", async () => {
       const task = pinnedTask("ReviewLogic", "task@abliterated");
       const scoutSpawn = { ...taskSpawn, agent: "scout" };
@@ -597,7 +531,6 @@ async function registerTests(): Promise<void> {
           [item("metis@abliterated"), "workflow-owned agent metis"],
           [item("@abliterated"), '"@abliterated"'],
           [item("scout@"), '"scout@"'],
-          [{ ...item("scout@abliterated"), model: "openai/gpt-5" }, "already sets its model"],
           [
             { context: "shared", tasks: [pinnedTask("Good", "task@abliterated"), pinnedTask("Bad", "task@missing-role")] },
             "task@missing-role: unknown model role missing-role",
