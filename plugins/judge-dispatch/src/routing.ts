@@ -1,49 +1,26 @@
-/** Coarse per-spawn thinking effort the host task tool accepts; it maps onto the target model's supported thinking levels. */
-export const TASK_EFFORTS = ["lo", "med", "hi"] as const;
-export type TaskEffort = (typeof TASK_EFFORTS)[number];
+import type { Model } from "@oh-my-pi/pi-ai";
+import { type Effort, THINKING_EFFORTS } from "@oh-my-pi/pi-catalog/effort";
+import { clampThinkingLevelForModel, getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
+import { type ConfiguredThinkingLevel, clampThinkingLevelToCeiling } from "@oh-my-pi/pi-tui/thinking";
 
-/** One judged difficulty drives both the thinking effort and the model budget, so the two never disagree. */
+/** The judged difficulty of an assignment; `standard` leaves the agent's own model and thinking level in place. */
 export const TASK_DIFFICULTIES = ["routine", "standard", "demanding"] as const;
 export type TaskDifficulty = (typeof TASK_DIFFICULTIES)[number];
 
-export const DIFFICULTY_EFFORT: Record<TaskDifficulty, TaskEffort> = { routine: "lo", standard: "med", demanding: "hi" };
+/** Difficulties a model tier can name; `standard` always runs on the agent's own model. */
+export const TIER_DIFFICULTIES = ["routine", "demanding"] as const;
+export type TierDifficulty = (typeof TIER_DIFFICULTIES)[number];
 
-export const MODEL_BUDGETS = ["minimum", "balanced", "max"] as const;
-export type ModelBudget = (typeof MODEL_BUDGETS)[number];
-
-export const MODEL_PICKS = ["best", "weighted"] as const;
-export type ModelPick = (typeof MODEL_PICKS)[number];
+/** Tier selectors keyed `<agent>.<difficulty>` for one agent or `<difficulty>` for every agent. */
+export type ModelTiers = ReadonlyMap<string, string>;
 
 export interface JudgeDispatchSettings {
   routeAgent: boolean;
-  selectModel: boolean;
-  modelBudget: ModelBudget;
-  modelPick: ModelPick;
-  /** Multiplier per provider id; unlisted providers weigh 1. */
-  providerWeights: ReadonlyMap<string, number>;
+  judgeEffort: boolean;
+  modelTiers: ModelTiers;
   minimumConfidence: number;
   includeSharedContext: boolean;
-  judgeEffort: boolean;
   indicator: boolean;
-}
-
-/** One model an agent may spawn with, resolved through the host registry. */
-export interface ModelOption {
-  /** The selector exactly as configured, so its thinking suffix and routing survive. */
-  pattern: string;
-  /** `provider/id` the selector resolves to; a pool holds each key once. */
-  key: string;
-  provider: string;
-  /** Catalog intelligence score; absent when the catalog has none. */
-  intelligence?: number;
-  /** USD per million tokens, blended 3:1 input to output; absent without catalog pricing. */
-  blendedPrice?: number;
-}
-
-export interface CandidateModelSummary {
-  role?: string;
-  /** Every available model the agent may spawn with, primary first: its selectors plus each role's fallback chain. */
-  pool: readonly ModelOption[];
 }
 
 export interface RoutingCandidate {
@@ -51,9 +28,10 @@ export interface RoutingCandidate {
   description: string;
   source: string;
   readOnly: boolean;
-  model: CandidateModelSummary;
-  /** Agent-frontmatter selectors before settings and session inheritance are applied. */
-  declaredModelPatterns?: readonly string[];
+  /** Expanded model selectors the agent spawns with, in attempt order. */
+  patterns: readonly string[];
+  /** The agent definition's own thinking level, which applies when its model selector carries none. */
+  thinkingLevel?: ConfiguredThinkingLevel;
 }
 
 export interface ParsedTaskRoute {
@@ -61,6 +39,10 @@ export interface ParsedTaskRoute {
   index: number | null;
   assignment: string;
   context?: string;
+  /** The caller's own description of how open the problem is. */
+  solutionSpace?: string;
+  /** The item sets `effort` itself, so its thinking level is never stepped. */
+  explicitEffort?: true;
   requestedAgent?: string;
   /** Model role or `provider/model` selector the caller pinned after `@` in the agent field (`scout@abliterated`). */
   explicitModel?: string;
@@ -73,12 +55,6 @@ export interface SerializedCandidate {
   description: string;
   source: string;
   access: "read-only" | "write-capable";
-  model: {
-    declared?: string[];
-    role?: string;
-    /** `provider/id` keys of the agent's model pool, primary first. */
-    models: string[];
-  };
 }
 
 export interface RoutingDecision {
@@ -87,32 +63,41 @@ export interface RoutingDecision {
   confidence: number;
 }
 
-/** Accepted judgments for one route; an absent field leaves that part of the call as requested. */
-export interface RouteChoice {
-  agent?: string;
-  effort?: TaskEffort;
-  agentConfidence?: number;
-  effortConfidence?: number;
-  /** Spawn label to write when the call has none, so the spawn hook can find this route's model decision. */
-  name?: string;
-  /** Unique spawn name replacing the caller's name on an explicitly bound item. */
-  spawnName?: string;
-  model?: ModelChoice;
+/** Why a re-dispatched task is raised: its child answered `ESCALATE: deep-high`, or failed after a lowered route. */
+export type EscalationReason = "escalate" | "failure";
+
+/** One thinking-level step at spawn: the level the child would have run at, and the level it runs at instead. */
+export interface ThinkingStep {
+  from: Effort;
+  to: Effort;
 }
 
-/** Outcome of model selection for one route: the switch made, or why the primary stays. */
-export interface ModelChoice {
-  /** `provider/id` of the configured primary model. */
-  primary: string;
-  /** The pool option to spawn with; absent when the primary stays. */
-  chosen?: ScoredModelOption;
-  /** Judged fit of a `best` pick: its probability share among the eligible models. */
-  fit?: number;
-  /** Why the primary stays, when the selection did not run to a choice. */
+/** A configured model tier for one route: the swap made, or why the agent's own model stays. */
+export interface TierChoice {
+  /** `provider/id` the agent's own selectors resolve to, when one does. */
+  primary?: string;
+  /** The tier selector as configured. */
+  tier: string;
   keptReason?: string;
 }
 
-/** Accepted answers from one native judgment; an absent field was not asked or not confident enough. */
+/** Accepted decisions for one route; an absent field leaves that part of the call as requested. */
+export interface RouteChoice {
+  agent?: string;
+  agentConfidence?: number;
+  /** Spawn label to write when the call has none, so the spawn hook can find this route's decision. */
+  name?: string;
+  /** Unique spawn name replacing the caller's name on an explicitly bound item. */
+  spawnName?: string;
+  /** The difficulty acted on: a confident judgment, or one forced by an escalation. */
+  difficulty?: TaskDifficulty;
+  difficultyConfidence?: number;
+  escalation?: EscalationReason;
+  thinking?: ThinkingStep;
+  model?: TierChoice;
+}
+
+/** Accepted answers from one native judgment, or a difficulty an escalation forces; an absent field was not asked or not confident enough. */
 export interface JudgedRoute {
   agent?: string;
   difficulty?: TaskDifficulty;
@@ -120,8 +105,7 @@ export interface JudgedRoute {
   difficultyConfidence?: number;
   /** The agent question was asked but no legal answer cleared `minimumConfidence`. */
   agentUndecided?: boolean;
-  /** The judged probability per model `provider/id`. */
-  modelFit?: Readonly<Record<string, number>>;
+  escalation?: EscalationReason;
 }
 
 /** Why a route kept its requested agent without a usable judgment. */
@@ -139,6 +123,73 @@ export function routingDeadlineMs(toolCallTimeoutMs: unknown): number | undefine
   if (typeof toolCallTimeoutMs !== "number" || !Number.isFinite(toolCallTimeoutMs)) return undefined;
   const deadline = Math.min(MAX_ROUTING_DEADLINE_MS, Math.floor(toolCallTimeoutMs) - TOOL_CALL_SAFETY_MARGIN_MS);
   return deadline >= MINIMUM_USEFUL_DEADLINE_MS ? deadline : undefined;
+}
+
+const TIER_KEY = /^(?:[A-Za-z0-9_-]+\.)?(?:routine|demanding)$/;
+const TIER_ROLE = /^@[^\s@,/:]+$/;
+const TIER_MODEL = /^[^\s@,/]+\/[^\s,]+$/;
+
+/**
+ * Parse `modelTiers`: comma-separated `[<agent>.]<routine|demanding>=<selector>`
+ * entries, where the selector is `@<role>` or `provider/model[:level]`. Throws on
+ * any malformed or repeated entry, so a typo never half-applies.
+ */
+export function parseModelTiers(raw: string): ModelTiers {
+  const tiers = new Map<string, string>();
+  if (!raw.trim()) return tiers;
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+    const separator = trimmed.indexOf("=");
+    const key = trimmed.slice(0, separator).trim();
+    const selector = trimmed.slice(separator + 1).trim();
+    const validSelector = TIER_ROLE.test(selector) || (TIER_MODEL.test(selector) && !selector.startsWith("pi/"));
+    if (separator < 0 || !TIER_KEY.test(key) || !validSelector || tiers.has(key)) {
+      throw new Error(
+        `invalid modelTiers entry ${JSON.stringify(trimmed)}; expected unique [<agent>.]<routine|demanding>=<@role or provider/model[:level]>`,
+      );
+    }
+    tiers.set(key, selector);
+  }
+  return tiers;
+}
+
+/** The tier selector for an agent at a difficulty: its own entry first, then the entry for every agent. */
+export function tierFor(tiers: ModelTiers, agent: string, difficulty: TaskDifficulty): string | undefined {
+  if (difficulty === "standard") return undefined;
+  return tiers.get(`${agent}.${difficulty}`) ?? tiers.get(difficulty);
+}
+
+export function hasTier(tiers: ModelTiers, agent: string): boolean {
+  return TIER_DIFFICULTIES.some((difficulty) => tierFor(tiers, agent, difficulty) !== undefined);
+}
+
+/**
+ * One supported thinking level down for routine work, one up for demanding work,
+ * from the level the child would run at without any `effort`. `baseline` is that
+ * level as configured: the explicit `:level` of the primary selector, else the
+ * agent definition's own. Nothing steps from `auto`, `inherit`, `off` or no level,
+ * a step never leaves the model's supported levels (so never reaches `off`), and
+ * it is clamped to `task.maxEffort`, which the host applies only to an `effort`.
+ */
+export function thinkingStep(
+  model: Model | undefined,
+  baseline: ConfiguredThinkingLevel | undefined,
+  difficulty: TaskDifficulty,
+  ceiling: Effort | undefined,
+): ThinkingStep | undefined {
+  if (!model || difficulty === "standard") return undefined;
+  const requested = THINKING_EFFORTS.find((level) => level === baseline);
+  const from = requested === undefined ? undefined : clampThinkingLevelForModel(model, requested);
+  if (from === undefined) return undefined;
+  const supported = getSupportedEfforts(model);
+  const ladder = THINKING_EFFORTS.filter((level) => supported.includes(level));
+  const target = ladder[ladder.indexOf(from) + (difficulty === "demanding" ? 1 : -1)];
+  if (target === undefined) return undefined;
+  const to = clampThinkingLevelToCeiling(model, target, ceiling) ?? target;
+  if (ceiling !== undefined && THINKING_EFFORTS.indexOf(to) > THINKING_EFFORTS.indexOf(ceiling)) return undefined;
+  const moved = THINKING_EFFORTS.indexOf(to) - THINKING_EFFORTS.indexOf(from);
+  if (difficulty === "demanding" ? moved <= 0 : moved >= 0) return undefined;
+  return { from, to };
 }
 
 const AVAILABLE_AGENTS_HEADING = "# Available Agents";
@@ -191,6 +242,17 @@ function agentFields(value: unknown): Pick<ParsedTaskRoute, "requestedAgent" | "
   return { ...(requestedAgent ? { requestedAgent } : {}), explicitModel: agent.slice(at + 1).trim() };
 }
 
+/** Item fields the flat and batch shapes share. */
+function itemFields(item: Record<string, unknown>): Pick<ParsedTaskRoute, "solutionSpace" | "explicitEffort" | "name"> {
+  const solutionSpace = optionalNonEmptyString(item.solutionSpace);
+  const name = optionalNonEmptyString(item.name);
+  return {
+    ...(solutionSpace ? { solutionSpace } : {}),
+    ...(item.effort !== undefined ? { explicitEffort: true } : {}),
+    ...(name ? { name } : {}),
+  };
+}
+
 /** Parse only valid ordinary task-tool wire shapes; malformed calls remain untouched. */
 export function parseTaskInput(input: unknown): ParsedTaskRoute[] | undefined {
   if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
@@ -209,14 +271,7 @@ export function parseTaskInput(input: unknown): ParsedTaskRoute[] | undefined {
       const assignment = optionalNonEmptyString(item.task);
       if (!assignment) return undefined;
       if (Object.hasOwn(item, "agent") && typeof item.agent !== "string") return undefined;
-      const name = optionalNonEmptyString(item.name);
-      routes.push({
-        index,
-        assignment,
-        context,
-        ...agentFields(item.agent),
-        ...(name ? { name } : {}),
-      });
+      routes.push({ index, assignment, context, ...agentFields(item.agent), ...itemFields(item) });
     }
     return routes;
   }
@@ -225,28 +280,17 @@ export function parseTaskInput(input: unknown): ParsedTaskRoute[] | undefined {
   if (!assignment) return undefined;
   if (Object.hasOwn(record, "agent") && typeof record.agent !== "string") return undefined;
   const context = optionalNonEmptyString(record.context);
-  const name = optionalNonEmptyString(record.name);
-  return [
-    {
-      index: null,
-      assignment,
-      ...(context ? { context } : {}),
-      ...agentFields(record.agent),
-      ...(name ? { name } : {}),
-    },
-  ];
+  return [{ index: null, assignment, ...(context ? { context } : {}), ...agentFields(record.agent), ...itemFields(record) }];
 }
 
 function rewriteTaskItem(item: Record<string, unknown>, choice: RouteChoice | undefined): Record<string, unknown> {
   const agentChanged = choice?.agent !== undefined && choice.agent !== item.agent;
-  const effortChanged = choice?.effort !== undefined && choice.effort !== item.effort;
   const renamed = choice?.spawnName !== undefined && choice.spawnName !== item.name;
   const nameAdded = choice?.name !== undefined && optionalNonEmptyString(item.name) === undefined;
-  if (!agentChanged && !effortChanged && !renamed && !nameAdded) return item;
+  if (!agentChanged && !renamed && !nameAdded) return item;
   return {
     ...item,
     ...(agentChanged ? { agent: choice.agent } : {}),
-    ...(effortChanged ? { effort: choice.effort } : {}),
     ...(renamed ? { name: choice.spawnName } : nameAdded ? { name: choice.name } : {}),
   };
 }
@@ -276,19 +320,13 @@ export function rewriteTaskRoutes(
   return changed ? { ...input, tasks } : input;
 }
 
-/** Produce the bounded candidate data allowed to leave the host for routing. */
+/** Produce the bounded candidate data allowed to leave the host for routing; models never reach the judge. */
 export function serializeCandidate(candidate: RoutingCandidate): SerializedCandidate {
-  const declared = candidate.declaredModelPatterns?.filter(Boolean);
   return {
     name: candidate.name,
     description: compactDescription(candidate.description),
     source: candidate.source,
     access: candidate.readOnly ? "read-only" : "write-capable",
-    model: {
-      ...(declared && declared.length > 0 ? { declared: [...declared] } : {}),
-      ...(candidate.model.role ? { role: candidate.model.role } : {}),
-      models: candidate.model.pool.map((option) => option.key),
-    },
   };
 }
 
@@ -322,112 +360,26 @@ export function acceptRoutingDecision<T extends string>(
   return legalChoices.find((choice) => choice === decision.choice);
 }
 
-export type ScoredModelOption = ModelOption & { intelligence: number; blendedPrice: number };
-
-export function isScored(option: ModelOption): option is ScoredModelOption {
-  return (
-    option.intelligence !== undefined &&
-    Number.isFinite(option.intelligence) &&
-    option.intelligence > 0 &&
-    option.blendedPrice !== undefined &&
-    Number.isFinite(option.blendedPrice)
-  );
-}
-
-export function blendedPrice(cost: { input: number; output: number }): number {
-  return (3 * cost.input + cost.output) / 4;
-}
-
-/**
- * Lowest share of the primary model's intelligence a pool option needs, per budget
- * and difficulty. The primary is the user's declared baseline, so it always
- * qualifies and anything stronger may be picked; `minimum` admits the whole pool.
- */
-const CAPABILITY_FLOORS: Record<ModelBudget, Record<TaskDifficulty, number>> = {
-  max: { routine: 1, standard: 1, demanding: 1 },
-  balanced: { routine: 0.8, standard: 0.9, demanding: 1 },
-  minimum: { routine: 0, standard: 0, demanding: 0 },
-};
-
-/** Exponent `k` of the `weighted` cheapness factor `1 / (1 + rank)^k`; 0 ignores price. */
-const CHEAPNESS_EXPONENTS: Record<ModelBudget, Record<TaskDifficulty, number>> = {
-  max: { routine: 0, standard: 0, demanding: 0 },
-  balanced: { routine: 1, standard: 0.5, demanding: 0 },
-  minimum: { routine: 2, standard: 1, demanding: 0.5 },
-};
-
-export interface ModelSelection {
-  /** Available pool, primary first, one entry per `provider/id`. */
-  pool: readonly ModelOption[];
-  difficulty: TaskDifficulty;
-  budget: ModelBudget;
-  pick: ModelPick;
-  providerWeights: ReadonlyMap<string, number>;
-  /** The judged probability per model `provider/id`; absent when the judge was not asked or did not answer. */
-  fit?: Readonly<Record<string, number>>;
-  /** Uniform sample in [0, 1) for `weighted`. */
-  random?: () => number;
-}
-
-/**
- * Pick a spawn model from an agent's pool. The budget decides which options are
- * eligible; `best` then takes the judge's best fit weighted by provider, and
- * `weighted` samples by fit, provider weight, and how cheap an option is.
- */
-export function selectSpawnModel(selection: ModelSelection): ModelChoice | undefined {
-  const primary = selection.pool[0];
-  if (!primary) return undefined;
-  const kept = (keptReason: string): ModelChoice => ({ primary: primary.key, keptReason });
-  if (!isScored(primary)) return kept("primary model has no catalog score");
-
-  const floor = primary.intelligence * CAPABILITY_FLOORS[selection.budget][selection.difficulty];
-  const eligible = selection.pool.filter(isScored).filter((option) => option.intelligence >= floor);
-  if (eligible.length < 2) return kept("no eligible alternatives");
-
-  const providerWeight = (option: ModelOption) => selection.providerWeights.get(option.provider) ?? 1;
-  const probabilities = selection.fit;
-  const fitMass = probabilities ? eligible.reduce((sum, option) => sum + (probabilities[option.key] ?? 0), 0) : 0;
-  const fitOf = (option: ModelOption) => (probabilities && fitMass > 0 ? (probabilities[option.key] ?? 0) / fitMass : 1);
-
-  if (selection.pick === "best") {
-    // Many-option answers rarely concentrate past a routing threshold, and every option is a model the
-    // user configured for this agent, so `best` follows the judged distribution instead of its confidence.
-    if (fitMass <= 0) return kept("no model judgment");
-    // Strict comparison keeps the earlier pool entry, so the primary wins ties.
-    const chosen = eligible.reduce((best, option) =>
-      fitOf(option) * providerWeight(option) > fitOf(best) * providerWeight(best) ? option : best,
-    );
-    return { primary: primary.key, chosen, fit: fitOf(chosen) };
-  }
-
-  const exponent = CHEAPNESS_EXPONENTS[selection.budget][selection.difficulty];
-  const byCost = [...eligible].sort((a, b) => a.blendedPrice - b.blendedPrice || a.intelligence - b.intelligence);
-  const weights = eligible.map((option) => fitOf(option) * providerWeight(option) * (1 + byCost.indexOf(option)) ** -exponent);
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  if (!(total > 0)) return kept("no eligible alternatives");
-  let remaining = (selection.random ?? Math.random)() * total;
-  for (const [index, option] of eligible.entries()) {
-    remaining -= weights[index] as number;
-    if (remaining < 0) return { primary: primary.key, chosen: option };
-  }
-  return { primary: primary.key, chosen: eligible.at(-1) };
-}
-
-export interface PendingSpawnRoute {
-  /** Agent whose pool the decision came from; the spawn must be of this agent. */
+/** A spawn-time change decided at `tool_call`, for the spawn of `agent` only. */
+interface PendingSpawnBase {
   agent: string;
-  /** `provider/id` the host must still resolve as primary, or the pool is stale. */
-  primary: string;
-  /** Spawn selectors, chosen model first, the rest of the pool as its retry chain. */
-  patterns: string[];
+  /** `provider/id` the host must still resolve first for the agent, or the decision is stale. */
+  primary?: string;
+  difficulty: TaskDifficulty;
   note: string;
 }
+
+export type PendingSpawnRoute =
+  /** Replace the agent's selectors with a tier's. */
+  | (PendingSpawnBase & { kind: "tier"; patterns: string[] })
+  /** Give the primary selector this thinking level, recomputed at spawn from the agent's own `thinkingLevel`. */
+  | (PendingSpawnBase & { kind: "thinking"; to: Effort; thinkingLevel?: ConfiguredThinkingLevel });
 
 const PENDING_SPAWN_LIMIT = 256;
 const SPAWN_SUFFIX_PATTERN = /-\d+$/;
 
 /**
- * Model decisions made at `tool_call` time, waiting for the matching
+ * Spawn decisions made at `tool_call` time, waiting for the matching
  * `before_subagent_spawn`. That event carries no assignment, only a spawn key the
  * host derives from the task item's `name` (`<parent>.<name>`, `-N` on collision),
  * so decisions are keyed by name. A name claimed twice is dropped for both spawns.
@@ -467,11 +419,11 @@ export class PendingSpawnRoutes {
  * (`<parent>.<name>`), trims a name before allocating it, and labels
  * unallocated synchronous spawns with the raw name.
  */
-function taskSpawnName(key: string): string {
+export function taskSpawnName(key: string): string {
   return key.slice(key.lastIndexOf(".") + 1).trim();
 }
 
-/** Model patterns a pinned task item applies at spawn. */
+/** Model patterns a pinned task item, or a model tier, applies at spawn. */
 export interface ExplicitSpawnModel {
   /** `@role` or the `provider/model` selector the caller pinned. */
   target: string;

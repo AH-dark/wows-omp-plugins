@@ -10,7 +10,7 @@ A personal marketplace of [omp](https://omp.sh) plugins. Several of them port wo
 | --- | --- |
 | [`adr`](plugins/adr/README.md) | Architecture decision records in MADR format, managed through agent tools and `/adr` |
 | [`audit-goal`](plugins/audit-goal/README.md) | `/audit`: repeated independent audit and fix rounds, recorded in a ledger |
-| [`judge-dispatch`](plugins/judge-dispatch/README.md) | OMP's judge role picks the subagent type, thinking effort and model for `task` calls |
+| [`judge-dispatch`](plugins/judge-dispatch/README.md) | OMP's judge role picks the subagent type for `task` calls and rates their difficulty, which can step thinking or select your model tiers |
 | [`omo-prometheus`](plugins/omo-prometheus/README.md) | OmO's Prometheus planning and Atlas plan execution |
 | [`omo-toolkit`](plugins/omo-toolkit/README.md) | OmO's category and research agents, workflow skills and documentation MCP servers |
 | [`omo-ultrawork`](plugins/omo-ultrawork/README.md) | OmO's ultrawork mode, `mass-ulw`, `/hyperplan` and `/ulw-research` |

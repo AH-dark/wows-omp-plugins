@@ -168,7 +168,8 @@ their assignment explicitly says so. Prompts that dispatch children whose work
 is accepted on their own evidence (Atlas rows, audit fixers, ultrawork lanes)
 must name the checks in every assignment.
 
-`judge-dispatch` routes agent type and effort only by rewriting `task` tool calls. OMP's
+`judge-dispatch` changes a child's agent type only by rewriting `task` tool calls,
+and its thinking level and model only at spawn. OMP's
 `before_subagent_spawn` hook can replace a child's model patterns but not its agent
 type or role identity, and its `spawnKey` is the child id the host allocates from
 the item's `name`. A per-task model pin therefore rides in the `agent` string
@@ -184,6 +185,19 @@ the plugin no longer reads it. The plugin never changes the user's
 global model roles or fallback settings.
 An earlier "enhanced" mode used a hypothetical routing API that no OMP release
 shipped and was removed. Build only on host surfaces exposed by released OMP.
+
+The judge only classifies: agent lane and difficulty. Measured on a real setup,
+its "which model" answers were diffuse and swapped curated primaries, so the
+maintainer decided that people configure the mapping (`modelTiers`, and
+`judgeEffort` stepping from the agent's own level); do not bring back judge model
+selection. The plugin never writes task `effort`: the host ranks it above an
+explicit `:level` and the agent's `thinkingLevel` (`task/executor.ts`) and maps
+`lo`/`med`/`hi` onto the ends and middle of the model's range, which flattens
+curated levels. A step instead becomes an explicit `:level` on the spawn's
+resolving selector, clamped to `task.maxEffort` by the plugin, because the host
+applies that ceiling only to `effort`. The retry and escalation memo reads child
+outcomes from `tool_execution_end` and the parent's async job rows, never from a
+`tool_result` hook.
 
 It derives its legal agent set from the live `task` tool description and reads
 its settings on every call from `ctx.cwd` (never `process.cwd()`), because plugin

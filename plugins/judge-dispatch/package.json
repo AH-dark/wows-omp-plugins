@@ -3,7 +3,7 @@
   "version": "0.7.1",
   "type": "module",
   "private": true,
-  "description": "Route OMP subagent types and pick their models with native judge-role judgments",
+  "description": "Route OMP subagent types and classify task difficulty with native judge-role judgments",
   "license": "MIT",
   "imports": {
     "#src/*": "./src/*"
@@ -18,39 +18,15 @@
         "default": true,
         "description": "Let the judge replace the agent type a task call requests"
       },
-      "selectModel": {
-        "type": "boolean",
-        "default": false,
-        "description": "Pick each task spawn's model from its agent's flattened model pool (selectors plus every role's fallback chain)"
-      },
-      "modelBudget": {
-        "type": "enum",
-        "values": [
-          "minimum",
-          "balanced",
-          "max"
-        ],
-        "default": "balanced",
-        "description": "Which pool models selectModel may use, relative to the agent's primary model: max never goes below it, minimum allows any"
-      },
-      "modelPick": {
-        "type": "enum",
-        "values": [
-          "best",
-          "weighted"
-        ],
-        "default": "best",
-        "description": "best: the judge's best-fitting eligible model; weighted: sample by fit, provider weight, and cheapness"
-      },
-      "providerWeights": {
-        "type": "string",
-        "default": "",
-        "description": "Provider preference multipliers as provider=weight pairs separated by commas, e.g. openai=2,anthropic=1 (unlisted providers weigh 1)"
-      },
       "judgeEffort": {
         "type": "boolean",
         "default": false,
-        "description": "Also let the judge set each task call's thinking effort (lo/med/hi), replacing the requested one"
+        "description": "Step each spawn's thinking level one supported level down for routine work and up for demanding work, from the level its agent would use"
+      },
+      "modelTiers": {
+        "type": "string",
+        "default": "",
+        "description": "Models for judged difficulties as comma-separated [<agent>.]<routine|demanding>=<@role or provider/model[:level]> entries, e.g. routine=@smol,ultrabrain.demanding=@slow; standard work always keeps the agent's own model"
       },
       "minimumConfidence": {
         "type": "number",
@@ -58,7 +34,7 @@
         "min": 0,
         "max": 1,
         "step": 0.05,
-        "description": "Minimum native judgment confidence required to change an agent type, effort, or best-picked model"
+        "description": "Minimum native judgment confidence required to change an agent type or to act on a judged difficulty"
       },
       "includeSharedContext": {
         "type": "boolean",

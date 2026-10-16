@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Breaking Changes
+
+* The judge no longer picks models. `selectModel`, `modelBudget`, `modelPick` and `providerWeights` are removed; map difficulties to models with `modelTiers` instead. Stored values of removed settings are ignored with a warning once per session.
+* `judgeEffort` no longer writes the task's `effort`, which overrode every configured level. It moves the spawn's thinking level one supported step down for routine work or up for demanding work, from the level the agent would use, never to `off` and never past `task.maxEffort`.
+
+### Features
+
+* `modelTiers` runs routine or demanding work, for every agent or one agent, on a model role or model you choose; standard work and any tier that cannot apply keep the agent's own model.
+* A task dispatched again under the same name after its child answered `ESCALATE: deep-high`, or failed on a route the plugin lowered, keeps the requested agent and is raised to demanding, or one difficulty higher.
+* The judge reads each item's `solutionSpace` and is asked for a difficulty only when the answer can change the spawn.
+
 ### Bug Fixes
 
 * Recognize both live task-agent roster formats without treating unknown policy as an empty list.

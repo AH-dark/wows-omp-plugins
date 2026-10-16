@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { truncateToWidth } from "@oh-my-pi/pi-tui";
 
+import { ESCALATE_LINE } from "#src/escalation.ts";
 import type { ParsedTaskRoute, RouteChoice, RouteOutcome } from "#src/routing.ts";
 
 /** Transcript records written by 0.4.0 and earlier; sessions that hold them must still render them and keep them from the model. */
@@ -37,7 +38,7 @@ function confidence(value: number | undefined): string {
   return value === undefined ? "" : ` (${value.toFixed(2)})`;
 }
 
-function routeLine(route: ParsedTaskRoute, item: Record<string, unknown>, outcome: RouteOutcome, choice: RouteChoice | undefined): string {
+function routeLine(route: ParsedTaskRoute, outcome: RouteOutcome, choice: RouteChoice | undefined): string {
   const requested = singleLine(route.requestedAgent ?? "default");
   const parts: string[] = [];
   if (typeof outcome === "string") parts.push(`${requested} kept (${outcome})`);
@@ -46,21 +47,20 @@ function routeLine(route: ParsedTaskRoute, item: Record<string, unknown>, outcom
   } else if (choice?.agent !== undefined) parts.push(`${requested} kept${confidence(choice.agentConfidence)}`);
   else parts.push(outcome.agentUndecided ? `${requested} kept (no confident choice)` : requested);
 
-  if (choice?.effort !== undefined) {
-    const current = item.effort;
-    const change = choice.effort === current ? choice.effort : `${singleLine(current ?? "default")} → ${choice.effort}`;
-    parts.push(`effort ${change}${confidence(choice.effortConfidence)}`);
-  } else if (typeof outcome !== "string" && outcome.difficulty) {
-    parts.push(`difficulty ${outcome.difficulty}${confidence(outcome.difficultyConfidence)}`);
-  }
+  // A forced difficulty has no confidence; the escalation note names its cause instead.
+  const basis = choice?.escalation ? "" : confidence(choice?.difficultyConfidence);
+  if (choice?.escalation === "escalate") parts.push(`escalated to ${choice.difficulty} after ${ESCALATE_LINE}`);
+  else if (choice?.escalation === "failure") parts.push(`raised to ${choice.difficulty} after a failed lowered run`);
 
   const model = choice?.model;
-  const fit = model?.fit === undefined ? "" : ` (fit ${model.fit.toFixed(2)})`;
+  const primary = singleLine(model?.primary ?? "default");
   if (route.explicitModel) parts.push(`model pinned to ${singleLine(route.explicitModel)}`);
-  else if (model?.chosen && model.chosen.key !== model.primary)
-    parts.push(`model ${singleLine(model.primary)} → ${singleLine(model.chosen.key)}${fit}`);
-  else if (model?.chosen) parts.push(`model ${singleLine(model.primary)} kept${fit}`);
-  else if (model) parts.push(`model ${singleLine(model.primary)} kept (${model.keptReason ?? "no choice"})`);
+  else if (model?.keptReason !== undefined)
+    parts.push(`model ${primary} kept (tier ${singleLine(model.tier)}: ${singleLine(model.keptReason)})`);
+  else if (model) parts.push(`model ${primary} → ${singleLine(model.tier)}${basis}`);
+  if (choice?.thinking) parts.push(`thinking ${choice.thinking.from} → ${choice.thinking.to}${basis}`);
+  const applied = choice?.thinking !== undefined || (model !== undefined && model.keptReason === undefined);
+  if (choice?.difficulty && !choice.escalation && !applied) parts.push(`difficulty ${choice.difficulty}${basis}`);
   return `${route.index === null ? "" : `#${route.index + 1} `}${parts.join(" · ")}`;
 }
 
@@ -68,18 +68,14 @@ function routeLine(route: ParsedTaskRoute, item: Record<string, unknown>, outcom
 export function showRouteOutcomes(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
-  input: Record<string, unknown>,
   routes: readonly ParsedTaskRoute[],
   outcomes: readonly RouteOutcome[],
   choices: readonly (RouteChoice | undefined)[],
 ): void {
-  const lines: string[] = [];
-  for (const [index, route] of routes.entries()) {
-    const item = route.index === null ? input : (input.tasks as Record<string, unknown>[] | undefined)?.[route.index];
+  const lines = routes.flatMap((route, index) => {
     const outcome = outcomes[index];
-    if (!item || outcome === undefined) continue;
-    lines.push(routeLine(route, item, outcome, choices[index]));
-  }
+    return outcome === undefined ? [] : [routeLine(route, outcome, choices[index])];
+  });
   if (lines.length > 0) showRoutingStatus(pi, ctx, lines.join(" ; "));
 }
 

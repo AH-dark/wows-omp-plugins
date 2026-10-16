@@ -1,9 +1,9 @@
-import type { ChoiceQuestion, JudgmentState } from "@oh-my-pi/pi-ai";
+import type { ChoiceQuestion, Model } from "@oh-my-pi/pi-ai";
+import type { Effort } from "@oh-my-pi/pi-catalog/effort";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
   disabledProviderIds,
   formatModelStringWithRouting,
-  normalizeModelPatternList,
   resolveAgentModelSelection,
   resolveConfiguredModelPatterns,
   resolveExplicitModelRole,
@@ -14,27 +14,25 @@ import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugi
 import { type ChainJudge, type JudgmentUsageLedger, journalJudgmentUsage, resolveJudge } from "@oh-my-pi/pi-coding-agent/judgment";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { type AgentDefinition, discoverAgents, isReadOnlyAgent } from "@oh-my-pi/pi-coding-agent/task";
+import { MAX_THINKING_SUFFIX_OPTIONS, splitThinkingSuffix } from "@oh-my-pi/pi-tui/overlays/model-selector";
+import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
+import type { TaskToolDetails } from "@oh-my-pi/pi-tui/tools/task";
 
+import { EscalationMemo, taskResultOutput } from "#src/escalation.ts";
 import { readHostSetting } from "#src/host-settings.ts";
 import { registerLegacyRouteRecords, setRoutingWorkingMessage, showRouteOutcomes, showRoutingStatus } from "#src/indicator.ts";
 import {
   acceptRoutingDecision,
-  blendedPrice,
-  DIFFICULTY_EFFORT,
   ExplicitSpawnClaims,
   type ExplicitSpawnModel,
+  hasTier,
   isPinnedSpawnName,
-  isScored,
   isWorkflowOwnedAgent,
   type JudgeDispatchSettings,
-  MODEL_BUDGETS,
-  MODEL_PICKS,
-  type ModelBudget,
-  type ModelOption,
-  type ModelPick,
   type ParsedTaskRoute,
   PendingSpawnRoutes,
   parseLegalAgentNames,
+  parseModelTiers,
   parseTaskInput,
   type RouteChoice,
   type RouteOutcome,
@@ -42,16 +40,26 @@ import {
   rewriteTaskRoutes,
   routableCandidates,
   routingDeadlineMs,
-  type SerializedCandidate,
-  selectSpawnModel,
   serializeCandidate,
   TASK_DIFFICULTIES,
   type TaskDifficulty,
+  thinkingStep,
+  tierFor,
 } from "#src/routing.ts";
 
 const PACKAGE_NAME = "wows-omp-plugin-judge-dispatch";
 /** The host's `task` default agent when a call names none and the session spawn policy is unrestricted. */
 const DEFAULT_SPAWN_AGENT = "task";
+/** Every setting the manifest declares; anything else stored for the plugin is ignored with a warning. */
+const SETTING_KEYS: Record<string, true> = {
+  routeAgent: true,
+  judgeEffort: true,
+  modelTiers: true,
+  minimumConfidence: true,
+  includeSharedContext: true,
+  indicator: true,
+};
+const DISPATCH_RECORD_LIMIT = 256;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -73,22 +81,6 @@ async function withRoutingDeadline<T>(timeoutMs: number, operation: (signal: Abo
   }
 }
 
-function parseProviderWeights(raw: unknown): Map<string, number> {
-  if (typeof raw !== "string") throw new Error(`invalid providerWeights ${JSON.stringify(raw)}`);
-  const weights = new Map<string, number>();
-  for (const entry of raw.split(/[,;\n]/)) {
-    if (!entry.trim()) continue;
-    const separator = entry.indexOf("=");
-    const provider = entry.slice(0, separator).trim();
-    const weight = Number(entry.slice(separator + 1).trim());
-    if (separator < 0 || !provider || !Number.isFinite(weight) || weight <= 0 || weights.has(provider)) {
-      throw new Error(`invalid providerWeights entry ${JSON.stringify(entry.trim())}; expected unique provider=weight with weight > 0`);
-    }
-    weights.set(provider, weight);
-  }
-  return weights;
-}
-
 function booleanSetting(raw: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const value = raw[key] ?? fallback;
   if (typeof value !== "boolean") throw new Error(`invalid ${key} ${JSON.stringify(value)}`);
@@ -100,33 +92,17 @@ function parseSettings(raw: Record<string, unknown>): JudgeDispatchSettings {
   if (typeof minimumConfidence !== "number" || !Number.isFinite(minimumConfidence) || minimumConfidence < 0 || minimumConfidence > 1) {
     throw new Error(`invalid minimumConfidence ${JSON.stringify(minimumConfidence)}`);
   }
-
-  // Releases up to 0.5 stored `modelBudget: off` to mean "no model selection" and any other budget to enable it.
-  const legacyOff = raw.modelBudget === "off";
-  const modelBudget = legacyOff ? "balanced" : (raw.modelBudget ?? "balanced");
-  if (!MODEL_BUDGETS.includes(modelBudget as ModelBudget)) {
-    throw new Error(`invalid modelBudget ${JSON.stringify(modelBudget)}`);
-  }
-  const modelPick = raw.modelPick ?? "best";
-  if (!MODEL_PICKS.includes(modelPick as ModelPick)) {
-    throw new Error(`invalid modelPick ${JSON.stringify(modelPick)}`);
-  }
+  const modelTiers = raw.modelTiers ?? "";
+  if (typeof modelTiers !== "string") throw new Error(`invalid modelTiers ${JSON.stringify(modelTiers)}`);
 
   return {
     routeAgent: booleanSetting(raw, "routeAgent", true),
-    selectModel: booleanSetting(raw, "selectModel", raw.modelBudget !== undefined && !legacyOff),
-    modelBudget: modelBudget as ModelBudget,
-    modelPick: modelPick as ModelPick,
-    providerWeights: parseProviderWeights(raw.providerWeights ?? ""),
+    judgeEffort: booleanSetting(raw, "judgeEffort", false),
+    modelTiers: parseModelTiers(modelTiers),
     minimumConfidence,
     includeSharedContext: booleanSetting(raw, "includeSharedContext", true),
-    judgeEffort: booleanSetting(raw, "judgeEffort", false),
     indicator: booleanSetting(raw, "indicator", true),
   };
-}
-
-async function effectivePluginSettings(cwd: string): Promise<JudgeDispatchSettings> {
-  return parseSettings(await getPluginSettings(PACKAGE_NAME, cwd));
 }
 
 function scopedSettings(ctx: ExtensionContext): Settings {
@@ -144,54 +120,34 @@ function deduplicateAgents(agents: readonly AgentDefinition[]): AgentDefinition[
   });
 }
 
-function modelOption(pattern: string, settings: Settings, ctx: ExtensionContext): ModelOption | undefined {
-  const model = resolveModelOverride([pattern], ctx.modelRegistry, settings).model;
-  if (!model) return undefined;
-  return {
-    pattern,
-    key: `${model.provider}/${model.id}`,
-    provider: model.provider,
-    ...(model.int != null && Number.isFinite(model.int) ? { intelligence: model.int } : {}),
-    ...(model.cost ? { blendedPrice: blendedPrice(model.cost) } : {}),
-  };
+/** The selector a spawn starts on and what it resolves to. */
+interface ResolvedPrimary {
+  /** Index of the first selector that resolves; the host spawns with it. */
+  index: number;
+  model: Model;
+  /** `provider/id`. */
+  key: string;
+  thinkingLevel?: ConfiguredThinkingLevel;
+  explicitThinkingLevel: boolean;
 }
 
-/**
- * Flatten an agent's model selection into one pool, primary first: the expanded
- * selectors, every role alias's retry chain, and, for a single selector, the chain
- * the host would inherit for it. Selectors resolving to the same `provider/id`
- * collapse into the first, so its thinking suffix wins.
- */
-function modelPool(
-  selection: { patterns: readonly string[]; role?: string },
-  sourceSelectors: readonly string[],
-  chains: Record<string, unknown>,
-  settings: Settings,
-  ctx: ExtensionContext,
-): ModelOption[] {
-  const chainOf = (role: string): string[] | undefined => {
-    const chain = chains[role];
-    return Array.isArray(chain) ? chain.filter((entry): entry is string => typeof entry === "string") : undefined;
-  };
-  const roles = sourceSelectors.flatMap((selector) => resolveExplicitModelRole(selector, settings) ?? []);
-  const selectors = [
-    ...selection.patterns,
-    ...roles.flatMap((role) => chainOf(role) ?? []),
-    ...(selection.patterns.length === 1 ? (chainOf(selection.role ?? "default") ?? chainOf("default") ?? []) : []),
-  ];
-  const pool: ModelOption[] = [];
-  for (const pattern of selectors) {
-    const option = modelOption(pattern, settings, ctx);
-    if (option && !pool.some((existing) => existing.key === option.key)) pool.push(option);
+/** Resolve selectors in attempt order as the spawn does, with disabled providers removed first. */
+function resolvePrimary(patterns: readonly string[], settings: Settings, ctx: ExtensionContext): ResolvedPrimary | undefined {
+  const disabled = disabledProviderIds(settings);
+  const enabled = ctx.modelRegistry.getAvailable().filter((model) => !disabled.has(model.provider));
+  const registry = { getAvailable: () => enabled };
+  for (const [index, pattern] of patterns.entries()) {
+    const { model, thinkingLevel, explicitThinkingLevel } = resolveModelOverride([pattern], registry, settings);
+    if (model) return { index, model, key: `${model.provider}/${model.id}`, thinkingLevel, explicitThinkingLevel };
   }
-  return pool;
+  return undefined;
 }
 
 /**
  * A `tool_call` hook sees no host spawn preflight, so the legal candidate set comes
  * from the host's own rendered `task` agent list (`legalNames`). Discovery here
- * only adds model metadata for those names; an agent the host did not list is
- * never described to a judge or selected.
+ * only adds each listed agent's model selectors and thinking level; an agent the
+ * host did not list is never described to a judge or selected.
  */
 async function discoverCandidates(ctx: ExtensionContext, settings: Settings, legalNames: readonly string[]): Promise<RoutingCandidate[]> {
   if (legalNames.length === 0) return [];
@@ -203,48 +159,26 @@ async function discoverCandidates(ctx: ExtensionContext, settings: Settings, leg
   const byName = new Map(agents.map((agent) => [agent.name, agent]));
   const blockedAgent = process.env.PI_BLOCKED_AGENT?.trim();
   const modelOverrides = readHostSetting(settings, "task.agentModelOverrides") as Record<string, string | string[] | undefined>;
-  const fallbackChains = readHostSetting(settings, "retry.fallbackChains") as Record<string, unknown>;
   const activeModelPattern = ctx.model ? formatModelStringWithRouting(ctx.model) : undefined;
 
   return legalNames
     .filter((name) => name !== blockedAgent)
     .map((name) => byName.get(name))
     .filter((agent): agent is AgentDefinition => agent !== undefined)
-    .map((agent) => {
-      const override = modelOverrides[agent.name];
-      const selection = resolveAgentModelSelection({
-        settingsOverride: override,
+    .map((agent) => ({
+      name: agent.name,
+      description: agent.description,
+      source: agent.source,
+      readOnly: isReadOnlyAgent(agent),
+      patterns: resolveAgentModelSelection({
+        settingsOverride: modelOverrides[agent.name],
         agentModel: agent.model,
         settings,
         activeModelPattern,
         fallbackModelPattern: activeModelPattern,
-      });
-      const sourceSelectors =
-        normalizeModelPatternList(override).length > 0 ? normalizeModelPatternList(override) : normalizeModelPatternList(agent.model);
-      return {
-        name: agent.name,
-        description: agent.description,
-        source: agent.source,
-        readOnly: isReadOnlyAgent(agent),
-        declaredModelPatterns: normalizeModelPatternList(agent.model),
-        model: {
-          ...(selection.role ? { role: selection.role } : {}),
-          pool: modelPool(selection, sourceSelectors, fallbackChains, settings, ctx),
-        },
-      } satisfies RoutingCandidate;
-    });
-}
-
-function candidateCriterion(candidate: SerializedCandidate): string {
-  const model = candidate.model;
-  const selectors = [
-    model.declared?.length ? `declared ${model.declared.join(", ")}` : undefined,
-    model.role ? `role ${model.role}` : undefined,
-    model.models.length ? `models ${model.models.join(", ")}` : undefined,
-  ]
-    .filter((part): part is string => part !== undefined)
-    .join("; ");
-  return `${candidate.description} [${candidate.source}; ${candidate.access}${selectors ? `; ${selectors}` : ""}]`;
+      }).patterns,
+      ...(agent.thinkingLevel ? { thinkingLevel: agent.thinkingLevel } : {}),
+    }));
 }
 
 /** The `judge` role chain did not reach a native judgment candidate: missing credentials or a chat-model judge role. */
@@ -263,7 +197,7 @@ function sessionJudge(ctx: ExtensionContext, settings: Settings): ChainJudge {
 const DIFFICULTY_QUESTION: ChoiceQuestion<TaskDifficulty> = {
   type: "choice",
   instructions:
-    "Classify how demanding this assignment is for the subagent, judged by how open-ended the problem is rather than by how much work it involves.",
+    "Classify how demanding this assignment is for the subagent, judged by how open-ended the problem is rather than by how much work it involves. A solutionSpace in the state is the caller's own description of how open the problem is: whether the fix or design is given, or which causes or designs remain open.",
   criteria: {
     routine: "Mechanical or fully specified work: the fix or steps are given and little reasoning is needed.",
     standard: "Ordinary multi-step work whose approach is mostly settled but still needs some reasoning.",
@@ -271,59 +205,47 @@ const DIFFICULTY_QUESTION: ChoiceQuestion<TaskDifficulty> = {
   },
 };
 
-const MODEL_QUESTION_INSTRUCTIONS =
-  "Choose the single model best suited to complete this assignment, weighing the work's reasoning depth and domain against each model's catalog intelligence and price. Do not choose the agent type.";
-
-function modelCriteria(candidates: readonly RoutingCandidate[]): Record<string, string> {
-  const criteria: Record<string, string> = {};
-  for (const option of candidates.flatMap((candidate) => candidate.model.pool)) {
-    if (Object.hasOwn(criteria, option.key) || !isScored(option)) continue;
-    const agents = candidates.filter((candidate) => candidate.model.pool.some((entry) => entry.key === option.key)).map((c) => c.name);
-    criteria[option.key] =
-      `intelligence ${option.intelligence}, $${option.blendedPrice.toFixed(2)}/M blended; available to ${agents.join(", ")}`;
-  }
-  return criteria;
-}
-
 async function judgeRoute(
   route: ParsedTaskRoute,
-  allCandidates: readonly RoutingCandidate[],
+  routable: readonly RoutingCandidate[],
   config: JudgeDispatchSettings,
   judge: ChainJudge,
   signal: AbortSignal,
   beforeJudge: () => void,
 ): Promise<RouteOutcome | typeof JUDGE_UNAVAILABLE> {
   signal.throwIfAborted();
-  const routable = routableCandidates(route.requestedAgent, allCandidates);
-  if (!routable) return "workflow-owned or unknown agent";
   const spawnAgent = route.requestedAgent ?? DEFAULT_SPAWN_AGENT;
   const candidates = config.routeAgent ? routable : routable.filter((candidate) => candidate.name === spawnAgent);
   if (candidates.length === 0) return "no alternatives";
   const routesAgent = config.routeAgent && candidates.length >= 2;
-  const modelOptions = config.selectModel && route.explicitModel === undefined ? modelCriteria(candidates) : {};
-  const judgesModel = Object.keys(modelOptions).length >= 2;
-  const judgesDifficulty = config.judgeEffort || judgesModel;
+  const difficultyApplies = (agent: string): boolean =>
+    route.explicitModel === undefined && ((config.judgeEffort && !route.explicitEffort) || hasTier(config.modelTiers, agent));
+  // Ask both together only if every possible final agent can use the difficulty.
+  // Agent-specific tiers otherwise need the agent answer before difficulty can matter.
+  const judgesDifficulty = routesAgent ? candidates.every((candidate) => difficultyApplies(candidate.name)) : difficultyApplies(spawnAgent);
   if (!routesAgent && !judgesDifficulty) return "no alternatives";
 
   const serialized = candidates.map(serializeCandidate);
   const candidateNames = serialized.map((candidate) => candidate.name);
   const state = {
     assignment: route.assignment,
+    ...(route.solutionSpace ? { solutionSpace: route.solutionSpace } : {}),
     ...(config.includeSharedContext && route.context ? { context: route.context } : {}),
     requestedAgent: route.requestedAgent ?? null,
-    candidates: serialized,
-  } as unknown as JudgmentState;
+    candidates: serialized.map((candidate) => ({ ...candidate })),
+  };
   const questions: Record<string, ChoiceQuestion> = {};
   if (routesAgent) {
     questions.agent = {
       type: "choice",
       instructions:
         "Choose the single agent type best suited to complete this assignment. Match the declared specialization and access needs; do not classify effort.",
-      criteria: Object.fromEntries(serialized.map((candidate) => [candidate.name, candidateCriterion(candidate)])),
+      criteria: Object.fromEntries(
+        serialized.map((candidate) => [candidate.name, `${candidate.description} [${candidate.source}; ${candidate.access}]`]),
+      ),
     };
   }
   if (judgesDifficulty) questions.difficulty = DIFFICULTY_QUESTION;
-  if (judgesModel) questions.model = { type: "choice", instructions: MODEL_QUESTION_INSTRUCTIONS, criteria: modelOptions };
 
   // A chat-model judge cannot reproduce a native judge's calibrated confidence, so
   // the chain's first usable candidate must be native; anything else is never called.
@@ -335,21 +257,33 @@ async function judgeRoute(
         if (kind !== "native") return JUDGE_UNAVAILABLE;
         reachedNative = true;
         const { answers } = await candidate.judge({ state, questions }, { signal });
-        const accept = <T extends string>(id: string, legal: readonly T[]): T | undefined => {
-          const answer = answers[id];
-          return (
-            answer && acceptRoutingDecision({ kind, choice: answer.choice, confidence: answer.confidence }, legal, config.minimumConfidence)
+        const agentAnswer = routesAgent ? answers.agent : undefined;
+        const agent = agentAnswer
+          ? acceptRoutingDecision(
+              { kind, choice: agentAnswer.choice, confidence: agentAnswer.confidence },
+              candidateNames,
+              config.minimumConfidence,
+            )
+          : undefined;
+        let difficultyAnswer = judgesDifficulty ? answers.difficulty : undefined;
+        if (!judgesDifficulty && difficultyApplies(agent ?? spawnAgent)) {
+          const result = await candidate.judge(
+            { state: { ...state, finalAgent: agent ?? spawnAgent }, questions: { difficulty: DIFFICULTY_QUESTION } },
+            { signal },
           );
-        };
-        const agent = routesAgent ? accept("agent", candidateNames) : undefined;
-        const difficulty = judgesDifficulty ? accept("difficulty", TASK_DIFFICULTIES) : undefined;
-        const modelAnswer = judgesModel ? answers.model : undefined;
-        const modelFit = modelAnswer?.type === "choice" ? modelAnswer.probabilities : undefined;
+          difficultyAnswer = result.answers.difficulty;
+        }
+        const difficulty = difficultyAnswer
+          ? acceptRoutingDecision(
+              { kind, choice: difficultyAnswer.choice, confidence: difficultyAnswer.confidence },
+              TASK_DIFFICULTIES,
+              config.minimumConfidence,
+            )
+          : undefined;
         return {
-          ...(agent ? { agent, agentConfidence: answers.agent?.confidence } : {}),
+          ...(agent ? { agent, agentConfidence: agentAnswer?.confidence } : {}),
           ...(routesAgent && !agent ? { agentUndecided: true } : {}),
-          ...(difficulty ? { difficulty, difficultyConfidence: answers.difficulty?.confidence } : {}),
-          ...(modelFit ? { modelFit } : {}),
+          ...(difficulty ? { difficulty, difficultyConfidence: difficultyAnswer?.confidence } : {}),
         };
       },
       { signal },
@@ -360,23 +294,44 @@ async function judgeRoute(
   }
 }
 
+/**
+ * Routing state of one parent session. `before_subagent_spawn` and
+ * `tool_execution_end` carry that session's context, so each finds its own.
+ */
+interface SessionRouting {
+  pending: PendingSpawnRoutes;
+  escalations: EscalationMemo;
+  /** Each routed task call until its result arrives: when it was dispatched, and the caller's name per item position. */
+  dispatched: Map<string, { at: number; names: (string | undefined)[] }>;
+}
+
 interface RoutingSession {
   pi: ExtensionAPI;
   ctx: ExtensionContext;
   config: JudgeDispatchSettings;
   judge: ChainJudge;
+  escalations: EscalationMemo;
   notifyUnavailable(ctx: ExtensionContext): void;
   beforeJudge(): void;
 }
 
-async function judgeRouteFailOpen(
+/**
+ * An item re-dispatched under a remembered name keeps its agent and takes the
+ * remembered difficulty without a judgment. The record is only read here; the
+ * caller consumes it once the routed call is actually returned.
+ */
+async function routeOutcome(
   session: RoutingSession,
   route: ParsedTaskRoute,
   candidates: readonly RoutingCandidate[],
   signal: AbortSignal,
 ): Promise<RouteOutcome> {
+  const routable = routableCandidates(route.requestedAgent, candidates);
+  if (!routable) return "workflow-owned or unknown agent";
+  const escalation = route.name ? session.escalations.peek(route.name) : undefined;
+  if (escalation) return { difficulty: escalation.difficulty, escalation: escalation.reason };
   try {
-    const judged = await judgeRoute(route, candidates, session.config, session.judge, signal, session.beforeJudge);
+    const judged = await judgeRoute(route, routable, session.config, session.judge, signal, session.beforeJudge);
     if (judged !== JUDGE_UNAVAILABLE) return judged;
     session.notifyUnavailable(session.ctx);
     return "judge unavailable";
@@ -386,49 +341,122 @@ async function judgeRouteFailOpen(
   }
 }
 
-/** Turn a judgment into the task-call rewrite, recording the model decision its spawn hook will apply. */
-function routeChoice(
+/**
+ * Turn an outcome into the task-call rewrite, recording the spawn change its hook
+ * will apply: a configured model tier for a routine or demanding difficulty, else,
+ * with `judgeEffort`, one thinking-level step. Pins keep their own model and level.
+ */
+function planRoute(
   route: ParsedTaskRoute,
-  judged: RouteOutcome,
+  outcome: RouteOutcome,
   config: JudgeDispatchSettings,
   candidates: readonly RoutingCandidate[],
   pending: PendingSpawnRoutes,
+  settings: Settings,
+  ctx: ExtensionContext,
 ): RouteChoice | undefined {
-  if (typeof judged === "string") return undefined;
+  if (typeof outcome === "string") return undefined;
   const choice: RouteChoice = {
-    ...(judged.agent ? { agent: judged.agent, agentConfidence: judged.agentConfidence } : {}),
-    ...(config.judgeEffort && judged.difficulty
-      ? { effort: DIFFICULTY_EFFORT[judged.difficulty], effortConfidence: judged.difficultyConfidence }
-      : {}),
+    ...(outcome.agent ? { agent: outcome.agent, agentConfidence: outcome.agentConfidence } : {}),
+    ...(outcome.difficulty ? { difficulty: outcome.difficulty, difficultyConfidence: outcome.difficultyConfidence } : {}),
+    ...(outcome.escalation ? { escalation: outcome.escalation } : {}),
   };
-  if (!config.selectModel || route.explicitModel !== undefined) return choice;
+  const difficulty = outcome.difficulty;
+  if (route.explicitModel !== undefined || !difficulty || difficulty === "standard") return choice;
+  const agent = outcome.agent ?? route.requestedAgent ?? DEFAULT_SPAWN_AGENT;
+  const candidate = candidates.find((entry) => entry.name === agent);
+  if (!candidate) return choice;
 
-  const agent = judged.agent ?? route.requestedAgent ?? DEFAULT_SPAWN_AGENT;
-  const pool = candidates.find((candidate) => candidate.name === agent)?.model.pool ?? [];
-  // Without a confident difficulty, select as for the hardest work so the budget never trades down on a guess.
-  const difficulty = judged.difficulty ?? "demanding";
-  const model = selectSpawnModel({
-    pool,
-    difficulty,
-    budget: config.modelBudget,
-    pick: config.modelPick,
-    providerWeights: config.providerWeights,
-    ...(judged.modelFit ? { fit: judged.modelFit } : {}),
-  });
-  if (!model) return choice;
-  choice.model = model;
-  const chosen = model.chosen;
-  if (!chosen || chosen.key === model.primary) return choice;
-
+  const primary = resolvePrimary(candidate.patterns, settings, ctx);
   const name = route.name ?? `${agent}-${crypto.randomUUID().slice(0, 8)}`;
-  if (!route.name) choice.name = name;
+  const tier = tierFor(config.modelTiers, agent, difficulty);
+  if (tier) {
+    try {
+      const model = explicitSpawnModel(tier.startsWith("@") ? tier.slice(1) : tier, ctx);
+      const tierPrimary = resolvePrimary(model.patterns, settings, ctx);
+      // A selector without its own level runs at the agent's `thinkingLevel`, for the tier as for the agent's model.
+      const level = (resolved: ResolvedPrimary | undefined) =>
+        resolved?.explicitThinkingLevel ? resolved.thinkingLevel : candidate.thinkingLevel;
+      // Only a tier that resolves to the agent's own model at its own level changes nothing; then the thinking step may still apply.
+      if (tierPrimary?.key !== primary?.key || level(tierPrimary) !== level(primary)) {
+        pending.add(name, {
+          kind: "tier",
+          agent,
+          primary: primary?.key,
+          difficulty,
+          patterns: model.patterns,
+          note: `judge-dispatch ${difficulty} tier ${model.target}`,
+        });
+        choice.model = { primary: primary?.key, tier };
+        if (!route.name) choice.name = name;
+        return choice;
+      }
+    } catch (error) {
+      choice.model = { primary: primary?.key, tier, keptReason: errorMessage(error) };
+    }
+  }
+
+  if (!config.judgeEffort || route.explicitEffort || !primary) return choice;
+  const thinking = thinkingStep(
+    primary.model,
+    primary.explicitThinkingLevel ? primary.thinkingLevel : candidate.thinkingLevel,
+    difficulty,
+    readHostSetting(settings, "task.maxEffort") as Effort,
+  );
+  if (!thinking) return choice;
   pending.add(name, {
+    kind: "thinking",
     agent,
-    primary: model.primary,
-    patterns: [chosen.pattern, ...pool.filter((option) => option.key !== chosen.key).map((option) => option.pattern)],
-    note: `judge-dispatch ${config.modelPick} pick, ${config.modelBudget} budget, ${difficulty} task: intelligence ${chosen.intelligence}, $${chosen.blendedPrice.toFixed(2)}/M blended`,
+    primary: primary.key,
+    difficulty,
+    to: thinking.to,
+    ...(candidate.thinkingLevel ? { thinkingLevel: candidate.thinkingLevel } : {}),
+    note: `judge-dispatch ${difficulty} task: thinking ${thinking.from} → ${thinking.to}`,
   });
+  choice.thinking = thinking;
+  if (!route.name) choice.name = name;
   return choice;
+}
+
+/**
+ * Feed a routed task call's final child outcomes into the escalation memo.
+ * Synchronous items arrive in the result itself. Background items settle later:
+ * their jobs are bound now, by child id and dispatch time, and remembered from
+ * the job's terminal status and delivery text when its promise settles.
+ */
+function observeTaskOutcomes(routing: SessionRouting, ctx: ExtensionContext, toolCallId: string, details: unknown): void {
+  const dispatch = routing.dispatched.get(toolCallId);
+  if (dispatch === undefined || !details || typeof details !== "object") return;
+  routing.dispatched.delete(toolCallId);
+  const { results, progress, async } = details as Partial<TaskToolDetails>;
+  const settled = new Set<string>();
+  for (const result of Array.isArray(results) ? results : []) {
+    settled.add(result.id);
+    const name = dispatch.names[result.index];
+    if (name === undefined || isWorkflowOwnedAgent(result.agent)) continue;
+    const failed = result.aborted === true || result.exitCode !== 0 || result.error !== undefined;
+    routing.escalations.settle(name, result.id, failed, result.output);
+  }
+  if (!async || !Array.isArray(progress)) return;
+  // Background child id → the name its item was dispatched under.
+  const background = new Map<string, string>();
+  for (const row of progress) {
+    const name = dispatch.names[row.index];
+    if (name !== undefined && !settled.has(row.id) && !isWorkflowOwnedAgent(row.agent)) background.set(row.id, name);
+  }
+  if (background.size === 0) return;
+  const parent = AgentRegistry.global()
+    .list()
+    .find((ref) => ref.session?.sessionManager === ctx.sessionManager);
+  for (const job of parent?.session?.asyncJobManager?.getAllJobs({ ownerId: parent.id }) ?? []) {
+    const childId = job.agentId;
+    const name = childId === undefined ? undefined : background.get(childId);
+    if (job.type !== "task" || childId === undefined || name === undefined || job.startTime < dispatch.at) continue;
+    background.delete(childId);
+    const settle = () =>
+      routing.escalations.settle(name, childId, job.status !== "completed", taskResultOutput(job.resultText ?? job.errorText ?? ""));
+    void job.promise.then(settle, settle);
+  }
 }
 
 /** Warn once per session that routing is idle until the host's judge role reaches a native judgment model. */
@@ -448,7 +476,24 @@ function unavailableNotifier(pi: ExtensionAPI): (ctx: ExtensionContext) => void 
   };
 }
 
-/** Resolve a pinned target to the patterns its spawn receives, refusing one the host would not resolve as pinned. */
+/** Warn once per session about stored settings the manifest no longer declares; they are ignored. */
+function unknownSettingsNotifier(pi: ExtensionAPI): (ctx: ExtensionContext, raw: Record<string, unknown>) => void {
+  const warned = new WeakSet<object>();
+  return (ctx, raw) => {
+    const unknown = Object.keys(raw).filter((key) => !Object.hasOwn(SETTING_KEYS, key));
+    if (unknown.length === 0 || warned.has(ctx.sessionManager)) return;
+    warned.add(ctx.sessionManager);
+    const message = `judge-dispatch ignores settings it no longer has: ${unknown.join(", ")}. Choose models per difficulty with modelTiers instead.`;
+    pi.logger.warn(message);
+    try {
+      ctx.ui.notify(message, "warning");
+    } catch (error) {
+      pi.logger.warn("judge-dispatch could not display its settings warning", { error: errorMessage(error) });
+    }
+  };
+}
+
+/** Resolve a pinned or tier target to the patterns its spawn receives, refusing one the host would not resolve as named. */
 function explicitSpawnModel(target: string, ctx: ExtensionContext): ExplicitSpawnModel {
   const settings = scopedSettings(ctx);
   const role = target.includes("/") ? undefined : target;
@@ -541,19 +586,20 @@ function prometheusExecuting(ctx: ExtensionContext): boolean {
 }
 
 const PIN_GUIDANCE =
-  "judge-dispatch: when the user asks to run a subagent on a specific OMP model role or model rather than its agent's own, write that task item's agent as `<agent>@<model role>` (for example `scout@smol`) or `<agent>@<provider>/<model>`. The judge then still routes the agent and effort, never the model. judge-dispatch rewrites the call before it runs, and OMP keeps that rewrite in place of your call: it then shows the bare agent and a name ending in `_jd` plus 12 hex digits (built from the item's name, or its agent when unnamed). That rewrite is the pin taking effect, not a mistake, so never re-dispatch because of it. Address the child by the id the task result returns. To rerun a pinned task, write the pin in its agent again. A pin that cannot apply refuses the call with the reason.";
+  "judge-dispatch: when the user asks to run a subagent on a specific OMP model role or model rather than its agent's own, write that task item's agent as `<agent>@<model role>` (for example `scout@smol`) or `<agent>@<provider>/<model>`. The judge then still routes the agent, never the model or its thinking level. judge-dispatch rewrites the call before it runs, and OMP keeps that rewrite in place of your call: it then shows the bare agent and a name ending in `_jd` plus 12 hex digits (built from the item's name, or its agent when unnamed). That rewrite is the pin taking effect, not a mistake, so never re-dispatch because of it. Address the child by the id the task result returns. To rerun a pinned task, write the pin in its agent again. A pin that cannot apply refuses the call with the reason. To retry or escalate a task, re-dispatch it with the same name so routing raises it.";
 
 export default function judgeDispatch(pi: ExtensionAPI): void {
   const notifyUnavailable = unavailableNotifier(pi);
+  const warnUnknownSettings = unknownSettingsNotifier(pi);
   registerLegacyRouteRecords(pi);
-  const pendingBySession = new WeakMap<object, PendingSpawnRoutes>();
-  const pendingFor = (ctx: ExtensionContext): PendingSpawnRoutes => {
-    let pending = pendingBySession.get(ctx.sessionManager);
-    if (!pending) {
-      pending = new PendingSpawnRoutes();
-      pendingBySession.set(ctx.sessionManager, pending);
+  const routingBySession = new WeakMap<object, SessionRouting>();
+  const routingFor = (ctx: ExtensionContext): SessionRouting => {
+    let routing = routingBySession.get(ctx.sessionManager);
+    if (!routing) {
+      routing = { pending: new PendingSpawnRoutes(), escalations: new EscalationMemo(), dispatched: new Map() };
+      routingBySession.set(ctx.sessionManager, routing);
     }
-    return pending;
+    return routing;
   };
   const claims = new ExplicitSpawnClaims();
 
@@ -562,13 +608,17 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
     return { systemPrompt: [...event.systemPrompt, PIN_GUIDANCE] };
   });
 
-  pi.on("tool_execution_end", (event) => {
+  pi.on("tool_execution_end", (event, ctx) => {
     if (event.toolName !== "task") return;
     const result: unknown = event.result;
     const details = result && typeof result === "object" && "details" in result ? result.details : undefined;
     // Background jobs spawn after this result and consume their claims then; any other settled call already spawned every child it will.
-    if (details && typeof details === "object" && "async" in details && details.async) return;
-    claims.settle(event.toolCallId);
+    if (!(details && typeof details === "object" && "async" in details && details.async)) claims.settle(event.toolCallId);
+    try {
+      observeTaskOutcomes(routingFor(ctx), ctx, event.toolCallId, details);
+    } catch (error) {
+      pi.logger.warn("judge-dispatch could not observe task outcomes", { error: errorMessage(error) });
+    }
   });
 
   pi.on("tool_call", async (event, ctx) => {
@@ -603,7 +653,9 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
           return { block: true, reason: `judge-dispatch could not pin the task model: ${errorMessage(error)}` };
         }
       }
-      const config = await effectivePluginSettings(ctx.cwd);
+      const rawSettings = await getPluginSettings(PACKAGE_NAME, ctx.cwd);
+      warnUnknownSettings(ctx, rawSettings);
+      const config = parseSettings(rawSettings);
       indicator = config.indicator;
       const settings = scopedSettings(ctx);
       const deadlineMs = routingDeadlineMs(readHostSetting(settings, "extensionHandlers.toolCallTimeoutMs"));
@@ -617,16 +669,26 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
         if (indicator) showRoutingStatus(pi, ctx, "kept the requested agent: the task tool lists no agents to route between");
         return pinned;
       }
+      if (!routes) return pinned;
+      const judged = routes;
+      const routing = routingFor(ctx);
+      // The host reports each child by item position; remember the caller's own name for it, exactly as written. Pinned items run under `_jd` names and are never remembered.
+      const names: (string | undefined)[] = [];
+      for (const route of judged) names[route.index ?? 0] = route.explicitModel === undefined ? route.name : undefined;
+      routing.dispatched.set(event.toolCallId, { at: Date.now(), names });
+      for (const oldest of routing.dispatched.keys()) {
+        if (routing.dispatched.size <= DISPATCH_RECORD_LIMIT) break;
+        routing.dispatched.delete(oldest);
+      }
       return await withRoutingDeadline(deadlineMs, async (signal) => {
-        if (!routes) return undefined;
         const candidates = await discoverCandidates(ctx, settings, legalNames);
         signal.throwIfAborted();
-        const judged = routes;
         const session: RoutingSession = {
           pi,
           ctx,
           config,
           judge: sessionJudge(ctx, settings),
+          escalations: routing.escalations,
           notifyUnavailable,
           beforeJudge() {
             // A judgment that starts after the deadline would set a message the finally block already restored.
@@ -635,12 +697,18 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
             setRoutingWorkingMessage(pi, ctx, `judge-dispatch: routing ${judged.length} ${judged.length === 1 ? "task" : "tasks"}…`);
           },
         };
-        const outcomes = await Promise.all(judged.map((route) => judgeRouteFailOpen(session, route, candidates, signal)));
+        const outcomes = await Promise.all(judged.map((route) => routeOutcome(session, route, candidates, signal)));
         signal.throwIfAborted();
-        const pending = pendingFor(ctx);
-        const choices = judged.map((route, index) => routeChoice(route, outcomes[index] as RouteOutcome, config, candidates, pending));
+        const choices = judged.map((route, index) =>
+          planRoute(route, outcomes[index] as RouteOutcome, config, candidates, routing.pending, settings, ctx),
+        );
         const rewritten = rewriteTaskRoutes(named, judged, choices);
-        if (indicator) showRouteOutcomes(pi, ctx, named, judged, outcomes, choices);
+        if (indicator) showRouteOutcomes(pi, ctx, judged, outcomes, choices);
+        // Past the last abort check nothing can fail open any more, so the raised routes are the ones this call returns.
+        for (const [index, route] of judged.entries()) {
+          const outcome = outcomes[index];
+          if (route.name && typeof outcome === "object" && outcome.escalation) routing.escalations.consume(route.name);
+        }
         return rewritten === input ? undefined : { ...pinned, input: rewritten };
       });
     } catch (error) {
@@ -687,16 +755,34 @@ export default function judgeDispatch(pi: ExtensionAPI): void {
         }
         return { model: explicit.patterns, note: explicit.note };
       }
-      const route = pendingFor(ctx).take(event.spawnKey, event.agent);
+      const routing = routingFor(ctx);
+      const route = routing.pending.take(event.spawnKey, event.agent);
       if (!route) return undefined;
-      // The pool was flattened at `tool_call`; skip it if the host now resolves a different primary.
-      const primary = event.patterns[0] ? modelOption(event.patterns[0], scopedSettings(ctx), ctx) : undefined;
+      // The decision was made against the agent's selectors at `tool_call`; skip it if the host now starts elsewhere.
+      const settings = scopedSettings(ctx);
+      const primary = resolvePrimary(event.patterns, settings, ctx);
       if (primary?.key !== route.primary) return undefined;
-      return { model: route.patterns, note: route.note };
+      let model = route.kind === "tier" ? route.patterns : undefined;
+      if (route.kind === "thinking" && primary) {
+        const thinking = thinkingStep(
+          primary.model,
+          primary.explicitThinkingLevel ? primary.thinkingLevel : route.thinkingLevel,
+          route.difficulty,
+          readHostSetting(settings, "task.maxEffort") as Effort,
+        );
+        if (thinking?.to !== route.to) return undefined;
+        const pattern = event.patterns[primary.index];
+        if (pattern === undefined) return undefined;
+        const base = primary.explicitThinkingLevel ? splitThinkingSuffix(pattern, -1, MAX_THINKING_SUFFIX_OPTIONS).base : pattern;
+        model = event.patterns.with(primary.index, `${base}:${thinking.to}`);
+      }
+      if (!model) return undefined;
+      if (route.difficulty === "routine") routing.escalations.lowered(event.spawnKey, route.difficulty);
+      return { model, note: route.note };
     } catch (error) {
       if (explicit)
         return { block: true, reason: `Task ${event.spawnKey} could not apply its pinned ${explicit.target}: ${errorMessage(error)}` };
-      pi.logger.warn("judge-dispatch model selection failed open", { error: errorMessage(error) });
+      pi.logger.warn("judge-dispatch spawn routing failed open", { error: errorMessage(error) });
       return undefined;
     }
   });

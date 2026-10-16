@@ -10,7 +10,7 @@
 | --- | --- |
 | [`adr`](plugins/adr/README.zh.md) | 以 MADR 格式记录架构决策，通过代理工具和 `/adr` 管理 |
 | [`audit-goal`](plugins/audit-goal/README.zh.md) | `/audit`：反复进行独立的审计与修复，每轮记入审计记录 |
-| [`judge-dispatch`](plugins/judge-dispatch/README.zh.md) | 由 OMP 的 judge 角色为 `task` 调用选择子代理类型、思考强度和模型 |
+| [`judge-dispatch`](plugins/judge-dispatch/README.zh.md) | 由 OMP 的 judge 角色为 `task` 调用选择子代理类型并评定难度，难度可调整思考级别或选用你配置的模型档位 |
 | [`omo-prometheus`](plugins/omo-prometheus/README.zh.md) | OmO 的 Prometheus 规划与 Atlas 计划执行 |
 | [`omo-toolkit`](plugins/omo-toolkit/README.zh.md) | OmO 的分类与调研代理、工作流技能和文档类 MCP 服务器 |
 | [`omo-ultrawork`](plugins/omo-ultrawork/README.zh.md) | OmO 的 Ultrawork 模式、`mass-ulw`、`/hyperplan` 和 `/ulw-research` |
