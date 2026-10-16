@@ -44,6 +44,16 @@ omp plugin install omo-toolkit@wows-omp-plugins
 
 原版分类说明见 OmO 文档：[Built-in Categories](https://github.com/code-yeongyu/oh-my-openagent/blob/fe427efeed97e95f009dc6ca7fb17a3ac857f79f/docs/reference/features.md#built-in-categories)。
 
+### 代理选择规程
+
+每轮开始前，插件会在主代理的系统提示词末尾追加一段简短的代理选择规程，改编自 OmO 的分类选择规程。只有当 `task` 工具处于启用状态、且其代理列表中至少有一个 omo-toolkit 代理时才会追加，并且只提及列表中出现的 omo-toolkit 代理。它告诉主代理：
+
+- 每个列出的代理负责哪类工作；拿不准时选 `deep-low`；相互独立的目标拆成并行的 `task` 条目；
+- 子代理结果首行为 `ESCALATE: deep-high` 时：若你已记录过相应决定就照此执行，否则把同一目标重新派给 `deep-high`（未列出 `deep-high` 时则询问你），并保持任务的 `name` 不变；
+- `deep-high` 返回 `ESCALATE: parent` 时询问你。
+
+点名某个代理的显式工作流指令（例如已批准的计划或审计循环）优先于该规程。若要关闭它，请禁用你不想提供的 omo-toolkit 代理，或卸载本插件。
+
 ### 技能
 
 | 技能 | 适用于 |
@@ -101,4 +111,4 @@ OmO 如何为代理和分类匹配模型，见其 [Agent-Model Matching Guide](h
 
 ## 许可证
 
-原创的打包部分采用 MIT 许可证。移植的代理和技能是 OmO 修订版 `fe427efeed97e95f009dc6ca7fb17a3ac857f79f` 的衍生作品，适用 Sustainable Use License 1.0。前端设计参考资料在 `skills/frontend/` 中保留了 Apache License 2.0 署名。详见 `NOTICE`、`LICENSE-MIT` 和 `LICENSE-SUL-1.0`。
+原创的打包部分采用 MIT 许可证。移植的代理、技能和代理选择规程（`src/selection-protocol.ts`）是 OmO 修订版 `fe427efeed97e95f009dc6ca7fb17a3ac857f79f` 的衍生作品，适用 Sustainable Use License 1.0。前端设计参考资料在 `skills/frontend/` 中保留了 Apache License 2.0 署名。详见 `NOTICE`、`LICENSE-MIT` 和 `LICENSE-SUL-1.0`。

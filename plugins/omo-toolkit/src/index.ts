@@ -1,8 +1,10 @@
-/** Registers the custom model roles that omo-toolkit agents prefer, so `/models` can assign them. */
+/** Registers omo-toolkit's model roles and injects its agent selection protocol into the main prompt. */
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { cfgModelTags, type ModelTagDef } from "@oh-my-pi/pi-coding-agent/config/model-settings";
 import type { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+
+import { buildSelectionProtocol, parseListedAgents } from "#src/selection-protocol.ts";
 
 export const TOOLKIT_MODEL_ROLES: Readonly<Record<string, ModelTagDef>> = {
   designer: { name: "DESIGNER", color: "syntaxVariable" },
@@ -35,4 +37,11 @@ export default function omoToolkit(pi: ExtensionAPI): void {
 
   pi.on("session_start", (_event, ctx) => registerRoles(ctx));
   pi.on("session_switch", (_event, ctx) => registerRoles(ctx));
+
+  pi.on("before_agent_start", (event) => {
+    if (!pi.getActiveTools().includes("task")) return undefined;
+    const taskTool = pi.getAllTools().find((tool) => tool.name === "task");
+    const protocol = taskTool ? buildSelectionProtocol(parseListedAgents(taskTool.description)) : undefined;
+    return protocol ? { systemPrompt: [...event.systemPrompt, protocol] } : undefined;
+  });
 }

@@ -44,6 +44,16 @@ Workers pass trade-offs you have not approved back to their parent instead of se
 
 OmO documents the original categories in [Built-in Categories](https://github.com/code-yeongyu/oh-my-openagent/blob/fe427efeed97e95f009dc6ca7fb17a3ac857f79f/docs/reference/features.md#built-in-categories).
 
+### Agent selection protocol
+
+Before each turn, the plugin appends a short agent selection protocol to the main agent's system prompt, adapted from OmO's category selection protocol. It appears only when the `task` tool is active and its agent list includes at least one omo-toolkit agent, and it names only the omo-toolkit agents that list includes. It tells the main agent:
+
+- which lane each listed agent covers, to pick `deep-low` when unsure, and to split independent goals into parallel `task` items;
+- how to handle a child whose result starts with `ESCALATE: deep-high`: apply a decision you already recorded, otherwise re-dispatch the goal to `deep-high` (or ask you when `deep-high` is not listed), keeping the task's `name`;
+- to ask you when `deep-high` returns `ESCALATE: parent`.
+
+Explicit workflow instructions that name an agent, such as an approved plan or an audit loop, take precedence over the protocol. To turn it off, disable the omo-toolkit agents you do not want offered, or uninstall the plugin.
+
 ### Skills
 
 | Skill | Use for |
@@ -101,4 +111,4 @@ Agents, skills and MCP servers work the same in every OMP mode.
 
 ## License
 
-Original packaging is MIT. The ported agents and skills are Sustainable Use License 1.0 derivatives of OmO revision `fe427efeed97e95f009dc6ca7fb17a3ac857f79f`. The frontend design references keep their Apache License 2.0 attribution in `skills/frontend/`. See `NOTICE`, `LICENSE-MIT` and `LICENSE-SUL-1.0`.
+Original packaging is MIT. The ported agents, skills and agent selection protocol (`src/selection-protocol.ts`) are Sustainable Use License 1.0 derivatives of OmO revision `fe427efeed97e95f009dc6ca7fb17a3ac857f79f`. The frontend design references keep their Apache License 2.0 attribution in `skills/frontend/`. See `NOTICE`, `LICENSE-MIT` and `LICENSE-SUL-1.0`.
