@@ -1,10 +1,10 @@
 {
   "plugins/adr": "0.2.1",
   "plugins/audit-goal": "0.3.5",
-  "plugins/judge-dispatch": "0.7.1",
+  "plugins/judge-dispatch": "0.8.0",
   "plugins/omp-herdr-dag": "0.6.2",
-  "plugins/omo-prometheus": "0.22.2",
+  "plugins/omo-prometheus": "0.22.3",
   "plugins/omo-ultrawork": "0.4.5",
-  "plugins/omo-toolkit": "0.4.2",
+  "plugins/omo-toolkit": "0.5.0",
   "plugins/roadmap": "0.6.1"
 }

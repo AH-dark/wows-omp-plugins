@@ -1,6 +1,6 @@
 {
   "name": "wows-omp-plugin-omo-prometheus",
-  "version": "0.22.2",
+  "version": "0.22.3",
   "type": "module",
   "private": true,
   "description": "Port of oh-my-openagent Prometheus planning and Atlas orchestration for OMP",

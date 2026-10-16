@@ -1,6 +1,6 @@
 {
   "name": "wows-omp-plugin-judge-dispatch",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "type": "module",
   "private": true,
   "description": "Route OMP subagent types and classify task difficulty with native judge-role judgments",
