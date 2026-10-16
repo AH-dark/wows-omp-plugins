@@ -134,7 +134,7 @@ F1 reads the hash-verified `plan.md` (its path is printed when F1 starts), the l
 
 ## Ownership
 
-While native child work is running, its session keeps ownership of the plan until that work reports a final result, and other sessions cannot write to it. A plan can be recovered when its owning session has provably died; recovery is refused when ownership is unclear or belongs to another host. Some hosts give no reliable signal that a child has finished; then the plan stays owned until the original OMP process exits. Research children never hold ownership. Deleting a plan is refused while a live session owns it or native work is pending.
+While native child work is running, its session keeps ownership of the plan until that work reports a final result, and other sessions cannot write to it. When another agent wakes a finished child and that turn ends without `yield`, the host reports no native result for it: the turn stops holding the plan once the host reports it finished, and its output never counts as evidence. A plan can be recovered when its owning session has provably died; recovery is refused when ownership is unclear or belongs to another host. When a child's end cannot be confirmed, for example after its wake job was cancelled, the plan stays owned until the original OMP process exits. Research children never hold ownership. Deleting a plan is refused while a live session owns it or native work is pending.
 
 ## Session integration
 

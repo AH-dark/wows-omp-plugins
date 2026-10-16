@@ -462,7 +462,13 @@ export class ChildEvidence {
         );
       });
       // Ambiguous generations never authorize a receipt or release writer ownership.
-      if (candidates.length !== 1) continue;
+      if (candidates.length !== 1) {
+        // The host registers a wake job only for a turn that yields or that the parent woke, always before the turn's
+        // terminal lifecycle frame. A finished turn without one, such as a peer's wake answered without yield, never gets
+        // one: it stops holding writer ownership, but with no native outcome it never authorizes a receipt.
+        if (!candidates.length && !turn.nativeJobId && turn.finishedAt !== undefined) turn.settled = true;
+        continue;
+      }
       const job = candidates[0];
       if (!job) continue;
       turn.nativeJobId = job.id as string;
@@ -490,7 +496,10 @@ export class ChildEvidence {
     }
   }
 
-  /** Lifecycle completion is not final task success, and cannot release writer ownership. */
+  /**
+   * Lifecycle completion is not final task success, and releases writer ownership only for a finished wake turn the
+   * host gave no native job.
+   */
   hasPending(sessionId: string, ledgerId: string): boolean {
     return (
       [...this.#dispatches.values()].some((assignments) =>
@@ -572,6 +581,11 @@ export class ChildEvidence {
     ) {
       throw new Error(
         "No native successful completion for this current assignment; use a fresh child to revalidate historical or stale work",
+      );
+    }
+    if (observed.reactivation?.settled && observed.finalStatus === undefined) {
+      throw new Error(
+        "Another agent woke this child after its task, and that turn ended without a native final result, so its output cannot be authenticated; dispatch a fresh child with the row's current atlas_assignment, or reopen the row",
       );
     }
     if (observed.finalStatus !== "completed") {

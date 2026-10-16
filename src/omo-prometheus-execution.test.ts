@@ -1375,6 +1375,33 @@ async function scenario(name: string, root: string): Promise<void> {
     }
     return;
   }
+  if (name === "wake-without-job") {
+    const git = (...args: string[]) => assert.equal(Bun.spawnSync(["git", ...args], { cwd: root }).exitCode, 0);
+    git("init", "-q");
+    git("config", "user.email", "atlas@example.test");
+    git("config", "user.name", "Atlas");
+    git("config", "commit.gpgsign", "false");
+    git("commit", "-q", "--allow-empty", "-m", "chore: baseline");
+    await writeFile(join(root, "adr-0001.md"), "# ADR\n");
+    const commit = () => call({ action: "commit", paths: ["adr-0001.md"], message: "docs: record the relay" }, "atlas_git");
+    const prepared = await prepare("T1");
+    await publish(prepared, "PeerWoken", { asyncStatus: "completed" });
+    // A peer's message wakes the finished child; the host registers no wake job for a turn answered without yield.
+    await publish(prepared, "PeerWoken", { status: "running", nativeStatus: "started", finalResult: false });
+    refused(await commit());
+    await publish(prepared, "PeerWoken", { nativeStatus: "completed", finalResult: false });
+    ok(await commit());
+    // The finished turn no longer holds the plan, but without a native outcome it never supplies a receipt.
+    refused(await done("T1", "PeerWoken"));
+    await commands.get("atlas")?.("exit", ctx);
+    // Loading host-dependent storage stays inside the isolated child process.
+    const { AtlasStore } = await import("../plugins/omo-prometheus/src/atlas-store.ts");
+    const rival = new AtlasStore(sessionManager.getSessionDir());
+    const shared = await rival.find("integrity");
+    await rival.acquire(shared.id, "rival");
+    await rival.release(shared.id, "rival");
+    return;
+  }
   if (name === "mixed-schedule-failure" || name === "mixed-inline-failure") {
     ok(await call({ action: "start", id: "T1" }));
     ok(await call({ action: "start", id: "T3" }));
@@ -2198,6 +2225,7 @@ if (process.env[CHILD_ENV]) {
       "wake-missing-lifecycle",
       "wake-wrapper-cancel",
       "wake-wrapper-direct-abort",
+      "wake-without-job",
       "mixed-schedule-failure",
       "mixed-inline-failure",
       "batch-error-sibling",
