@@ -462,6 +462,7 @@ const CASES: Record<string, string> = {
   "overlap-lock-start": "a queued native start binds before a late free-work answer can write",
   "overlap-lock-terminal": "a queued terminal transition invalidates a late overlap mutation under the lock",
   binding: "roadmap overlap starts, binds and returns its handoff",
+  "plan-mode-binding": "in plan mode overlap and start bind a planned stage without writing; outside it the bound stage starts",
   headless: "without a UI, previews wait for /roadmap confirm, overlaps and round close take command arguments, and notices are messages",
   "bound-start": "started stages bypass the overlap dialog and free-work log",
   "bound-join": "joined stages bypass the overlap dialog and free-work log",
@@ -2262,6 +2263,29 @@ async function acceptance(name: string, root: string): Promise<void> {
           await h.runner.emit({ type: "session_start" });
           assert(!(await injection(h)).includes("Bound stage:"));
         }
+      } else if (name === "plan-mode-binding") {
+        const stagePath = (await loadAll(repo)).stages[0]?.path as string;
+        const before = await readFile(stagePath, "utf8");
+        h.session.sessionManager.appendModeChange("plan");
+        h.ui.answer = "roadmap";
+        for (const receipt of [
+          await call(h, "roadmap_overlap", { stage: "S01", intent: "Plan checkout" }),
+          await call(h, "roadmap_stage", { action: "start", id: "S01" }),
+        ]) {
+          assert(receipt.ok, JSON.stringify(receipt));
+          assert.deepEqual(receipt.changedFiles, []);
+          assert.match(receipt.handoff ?? "", /DC1/);
+        }
+        assert.equal(await readFile(stagePath, "utf8"), before);
+        assert.match(await injection(h), /Bound stage: S01, still planned/);
+        h.session.sessionManager.appendModeChange("none");
+        const started = await call(h, "roadmap_overlap", { stage: "S01", intent: "Build checkout" });
+        assert(started.ok, JSON.stringify(started));
+        assert.equal(started.answer, "roadmap");
+        assert.notDeepEqual(started.changedFiles, []);
+        assert.equal((await loadAll(repo)).stages[0]?.status, "active");
+        assert.equal(h.ui.overlapCalls.length, 1);
+        assert.match(await injection(h), /Bound stage: S01\. /);
       } else if (name.startsWith("bound-")) {
         if (name.includes("join")) assert((await stage(repo, main, { action: "start", id: "S01" })).ok);
         const started = await call(h, "roadmap_stage", { action: "start", id: "S01" });

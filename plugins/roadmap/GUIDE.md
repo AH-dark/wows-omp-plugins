@@ -63,7 +63,7 @@ While working on S02, the agent finds that password reset behaves differently. I
 
 1. Run `/init-project` and confirm the preview. Draft later rounds with `/roadmap plan-round`.
 2. Ask which stages can start. The agent sees which are ready and which wait on dependencies.
-3. Start the stage, then plan with `/prometheus`. The handoff includes the round's goal, constraints and non-goals, what predecessor stages delivered, open TODOs, ADRs, and plans already made for the stage.
+3. Start the stage, then plan with `/prometheus`, or the other way round. The handoff includes the round's goal, constraints and non-goals, what predecessor stages delivered, open TODOs, ADRs, and plans already made for the stage. Started inside planning, the stage only binds and stays planned; Atlas starts it and commits that start before its first task.
 4. While working, scope changes become stage amendments, later work becomes TODOs, and decisions become ADRs. If the stage changes after a plan was approved, you get a notice; nothing pauses.
 5. Before Atlas releases a plan, each out-of-scope finding is filed as a TODO, a duplicate or won't fix, and listed in the final report.
 6. When a plan finishes, the reminder shows criteria coverage across all plans. Close the stage once every criterion has passing evidence.

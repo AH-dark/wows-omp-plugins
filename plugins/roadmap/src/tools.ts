@@ -23,7 +23,7 @@ import {
   todo,
   upgrade,
 } from "#src/operations.ts";
-import { type ArmedKind, actor, type RoadmapSession, type UiFactory } from "#src/ses.ts";
+import { type ArmedKind, actor, planModeActive, type RoadmapSession, type UiFactory } from "#src/ses.ts";
 import { stageReadiness } from "#src/state.ts";
 import type { OverlapAnswer } from "#src/ui.ts";
 
@@ -190,6 +190,7 @@ export interface OverlapRequest {
 /** Applies the user's overlap answer (from the dialog or `/roadmap overlap`) once per stage and session. */
 export async function resolveOverlap(request: OverlapRequest): Promise<ToolReceipt> {
   const { ses, ctx, repo, owner, generation, signal } = request;
+  const planning = planModeActive(ctx);
   const stale = (): ToolReceipt => ({
     ok: false,
     reason: "Roadmap overlap answer is stale: the session or stage changed while the answer was pending.",
@@ -209,7 +210,12 @@ export async function resolveOverlap(request: OverlapRequest): Promise<ToolRecei
   }
   let stored = ses.overlapAnswer(ctx, repo.repoRoot, current.id);
   let answer = stored;
-  if (ses.getBinding(repo.repoRoot)?.stage !== current.id && !stored) answer = await request.ask(current);
+  const boundAtStart = ses.getBinding(repo.repoRoot)?.stage === current.id;
+  // Plan mode binds a planned stage without starting it; answering roadmap again outside plan mode starts it.
+  const startBound = boundAtStart && current.status === "planned" && !planning;
+  // This session's binding answers for itself, ahead of an earlier free or unrelated answer.
+  if (boundAtStart) answer = "roadmap";
+  else if (!stored) answer = await request.ask(current);
   const guard = (latest: Model): ToolReceipt | undefined => {
     if (signal?.aborted) return { ok: false, reason: "Roadmap overlap cancelled.", hints: [] };
     if (!ses.isCurrent(ctx, generation)) return stale();
@@ -224,7 +230,8 @@ export async function resolveOverlap(request: OverlapRequest): Promise<ToolRecei
     ses.validateBinding(ctx, repo.repoRoot, latest);
     stored = ses.overlapAnswer(ctx, repo.repoRoot, candidate.id);
     answer = stored ?? answer;
-    if (ses.getBinding(repo.repoRoot)?.stage === candidate.id) {
+    const bound = ses.getBinding(repo.repoRoot)?.stage === candidate.id;
+    if (bound && !startBound && (candidate.status === "active" || planning)) {
       answer = "roadmap";
       return {
         ok: true,
@@ -235,6 +242,7 @@ export async function resolveOverlap(request: OverlapRequest): Promise<ToolRecei
         warnings: [],
       };
     }
+    if (bound) answer = "roadmap";
     if (!answer)
       return {
         ok: false,
@@ -260,7 +268,7 @@ export async function resolveOverlap(request: OverlapRequest): Promise<ToolRecei
       repo,
       owner,
       { action: "start", id: current.id },
-      { signal, guard, onSuccess, plans: request.plans?.(current.id) },
+      { signal, guard, onSuccess, planning, plans: request.plans?.(current.id) },
     );
   else
     receipt = await withRepoLock(repo, async () => {
@@ -506,7 +514,7 @@ export function registerTools(
     sourcePath: TOOL_SOURCE_PATH,
     label: "Roadmap stage",
     description:
-      "Manage stage lifecycle. Start or join returns the planning handoff and binds this session. Close requires passing evidence for every done criterion and TODO dispositions, refuses while ADRs linked to the stage are proposed, and records still-unfinished linked Atlas plans under the Outcome's Deviations.",
+      "Manage stage lifecycle. Start or join returns the planning handoff and binds this session; in plan mode start binds a planned stage without writing, and it starts when start is called again outside plan mode. Close requires passing evidence for every done criterion and TODO dispositions, refuses while ADRs linked to the stage are proposed, and records still-unfinished linked Atlas plans under the Outcome's Deviations.",
     parameters: stageParameters,
     approval: "write",
     async execute(_id, params: typeof stageParameters.infer, signal, _onUpdate, ctx) {
@@ -514,6 +522,7 @@ export function registerTools(
       return run(ctx, (repo, owner) =>
         stage(repo, owner, params, {
           signal,
+          planning: params.action === "start" && planModeActive(ctx),
           plans:
             params.id && (params.action === "start" || params.action === "close")
               ? planLookup(pi.events, ctx, repo.repoRoot)(params.id)

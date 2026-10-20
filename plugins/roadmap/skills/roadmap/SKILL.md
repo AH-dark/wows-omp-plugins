@@ -25,6 +25,8 @@ Use the tool-owned body subset: plain paragraphs, flat bullet or ordered lists w
 
 Use `roadmap_stage` with `action: "start"` to start a planned stage or join an active one in the active round. Stages in planned rounds cannot start or bind. Read the returned handoff before planning implementation: it carries the round's full goal, constraints and non-goals, the Delivered and Deviations text of the stage's direct predecessors (`depends_on` and `follows`), and, when omo-prometheus answers, the Atlas plans already bound to the stage with per-criterion coverage and drift. Joining doesn't grant exclusive ownership; another session may be working on the same stage. Dependencies must be closed before starting; readiness in `roadmap_status` shows which ones block. Don't bypass a refusal.
 
+In native plan mode, which cannot commit, `start` binds a planned stage and returns its handoff without writing anything: the stage stays planned. Before implementation begins outside plan mode, call `roadmap_stage` with `action: "start"` again to start it, then commit the files it lists. Under Atlas the plugin refuses row dispatch until that start is done and committed.
+
 ## Several plans for one stage
 
 A stage may be delivered by several Atlas plans. Each plan declares the done criteria it owns in one `Roadmap criteria: DC1, DC3` line, and its success criteria cite those ids. Before drafting, read the handoff's Plans for this stage: criteria that no plan covers yet must be covered by this plan or explicitly left for another plan. Plans live in omo-prometheus's Atlas bundles, not in `docs/roadmap/`; without omo-prometheus there is no plan section.
@@ -93,11 +95,11 @@ In a free session, the main agent calls `roadmap_overlap` with the candidate sta
 
 The plugin asks once per stage per session, and remembers the answer across compaction:
 
-- **Use the roadmap** starts or joins the stage, binds the session, and returns its handoff.
+- **Use the roadmap** starts or joins the stage, binds the session, and returns its handoff. In plan mode it only binds a planned stage, as `start` does there.
 - **Free work** leaves the session outside that stage and appends a line to its Free-work log. When the stage is later started, verify in code what already exists before planning duplicate work. The log isn't completion evidence.
 - **Unrelated** records the false positive without binding the session.
 
-An already-bound stage returns in-system with its handoff, without a dialog or free-work entry, even without a UI; its binding takes precedence over an earlier free/unrelated answer. Otherwise don't re-ask after a stored answer. Without a UI, no answer is recorded; don't choose for the user. Subagents don't conduct this overlap dialog.
+An already-bound stage returns in-system with its handoff, without a dialog or free-work entry, even without a UI; its binding takes precedence over an earlier free/unrelated answer. A stage bound in plan mode and still planned starts when the overlap is answered again outside plan mode. Otherwise don't re-ask after a stored answer. Without a UI, no answer is recorded; don't choose for the user. Subagents don't conduct this overlap dialog.
 
 ## Consistency and recovery
 

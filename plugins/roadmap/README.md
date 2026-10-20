@@ -46,6 +46,8 @@ While a round is active, the agent sees a short roadmap status in every turn, in
 
 Starting a stage binds the session to it and returns the handoff. Starting a stage that is already active joins it instead, with a warning that another session may be working on it. `roadmap_status` and the per-turn status show which planned stages can start now and which still wait on unclosed dependencies.
 
+In Plan Mode the agent cannot commit, so starting a stage there only binds the session and returns the handoff; the stage stays planned and no file changes. The stage starts, and its files are committed, when implementation begins after the plan is approved. With omo-prometheus, Atlas does this before dispatching any task and refuses to dispatch until it is done. It also commits a stage start made outside Plan Mode that nobody committed.
+
 Scope or criterion changes on an active stage are recorded with `amend` and a reason. Later work goes into TODOs and decisions into ADRs through `adr_manage`.
 
 A stage closes only from `active`, and only when:

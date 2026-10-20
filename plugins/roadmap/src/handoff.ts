@@ -245,11 +245,13 @@ export function renderInjection(model: Model, binding?: StageBinding, on = today
     if (plannedRounds.length > PLANNED_ROUND_CAP) lines.push(`${plannedRounds.length - PLANNED_ROUND_CAP} more, see roadmap_status.`);
   }
   if (binding) {
-    const stage = model.stages.find((candidate) => candidate.id === binding.stage);
+    const stage = model.stages.find((candidate) => candidate.id === binding.stage && candidate.round === round.id);
     lines.push(
-      stage?.status === "active" && stage.round === round.id
+      stage?.status === "active"
         ? `Bound stage: ${stage.id}. Call roadmap_status with stage=${stage.id} for its planning handoff.`
-        : `Previous binding ${oneLine(binding.stage, 40)} is no longer active; drop this session's binding.`,
+        : stage?.status === "planned"
+          ? `Bound stage: ${stage.id}, still planned: plan mode bound it without starting it. Call roadmap_status with stage=${stage.id} for its planning handoff. Before implementation begins outside plan mode, start it with roadmap_stage start and commit the files it lists.`
+          : `Previous binding ${oneLine(binding.stage, 40)} is no longer active; drop this session's binding.`,
     );
   }
   lines.push(

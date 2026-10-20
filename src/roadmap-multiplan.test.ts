@@ -32,7 +32,7 @@ import {
   upgrade,
 } from "../plugins/roadmap/src/operations.ts";
 import { registerPrometheusContract } from "../plugins/roadmap/src/prometheus.ts";
-import { type PendingClose, RoadmapSession } from "../plugins/roadmap/src/ses.ts";
+import { type PendingClose, planModeActive, RoadmapSession } from "../plugins/roadmap/src/ses.ts";
 import { roadmapStatus } from "../plugins/roadmap/src/state.ts";
 import { adrApi, asFormatOne, contractEvents, modelFixture, planFixture, roundFixture, stageFixture } from "./roadmap-fixtures.ts";
 
@@ -535,7 +535,7 @@ describe("roadmap:binding and roadmap:stage answers", () => {
       off();
       return answers;
     };
-    return { ses, ctx, ask, sessionId, events };
+    return { ses, ctx, ask, sessionId, events, entries };
   }
 
   test("stage requests answer the current planning basis and validate requests", async () => {
@@ -556,6 +556,7 @@ describe("roadmap:binding and roadmap:stage answers", () => {
           status: "planned",
           criteria: ["DC1", "DC2"],
           revision: planningRevision(current),
+          activation: { action: "start" },
         },
       },
     ]);
@@ -577,6 +578,30 @@ describe("roadmap:binding and roadmap:stage answers", () => {
     await writeFile(index, text);
   });
 
+  test("an active stage with no commit yet owes its stage, round and index files", async () => {
+    const repo = await initialized();
+    const { ask, sessionId } = contract(repo.repoRoot);
+    success(await stage(repo, main, { action: "start", id: "S01" }));
+    const current = found((await loadAll(repo)).stages[0]);
+    const relative = (path: string) => path.slice(repo.repoRoot.length + 1);
+    const [answer] = ask("roadmap:stage-request", "roadmap:stage", {
+      v: 1,
+      sessionId,
+      requestId: "c1",
+      repoRoot: repo.repoRoot,
+      stage: "S01",
+    });
+    expect(answer).toMatchObject({
+      stage: {
+        status: "active",
+        activation: {
+          action: "commit",
+          files: [relative(current.path), relative(join(current.path, "../../README.md")), "docs/roadmap/README.md"],
+        },
+      },
+    });
+  });
+
   test("the binding answer adds the bound stage's current criteria and revision", async () => {
     const repo = await initialized();
     const { ses, ctx, ask, sessionId } = contract(repo.repoRoot);
@@ -595,6 +620,45 @@ describe("roadmap:binding and roadmap:stage answers", () => {
     const after = found(binding());
     expect(after.criteria).toEqual(["DC1"]);
     expect(after.revision).not.toBe(before.revision);
+  });
+
+  test("a start in plan mode binds a planned stage without writing; execution then owes the start and its commit", async () => {
+    const repo = await initialized();
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", "-C", repo.repoRoot, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args]);
+      if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed`);
+    };
+    git("add", "-A");
+    git("commit", "-qm", "roadmap");
+    const { ses, ctx, ask, sessionId, entries } = contract(repo.repoRoot);
+    const owed = () =>
+      ask("roadmap:stage-request", "roadmap:stage", { v: 1, sessionId, requestId: "a1", repoRoot: repo.repoRoot, stage: "S01" })[0];
+    entries.push({ type: "mode_change", id: "plan", mode: "plan" });
+    expect(planModeActive(ctx)).toBe(true);
+    const before = await readFile(found((await loadAll(repo)).stages[0]).path, "utf8");
+    const bound = success(await stage(repo, main, { action: "start", id: "S01" }, { planning: true }));
+    expect(bound.changedFiles).toEqual([]);
+    expect(bound.handoff).toBeDefined();
+    const planned = found((await loadAll(repo)).stages[0]);
+    expect(planned.status).toBe("planned");
+    expect(await readFile(planned.path, "utf8")).toBe(before);
+    ses.bind(ctx, repo.repoRoot, "S01");
+    const model = await loadAll(repo);
+    expect(ses.validateBinding(ctx, repo.repoRoot, model)).toBeUndefined();
+    expect(roadmapStatus(repo.repoRoot, model, ses.getBinding(repo.repoRoot)).boundStage).toBe("S01");
+    const [binding] = ask("roadmap:binding-request", "roadmap:binding", { v: 1, sessionId, requestId: "b1" });
+    expect(binding).toMatchObject({ stage: { id: "S01" } });
+    expect(owed()).toMatchObject({ stage: { status: "planned", activation: { action: "start" } } });
+
+    entries.push({ type: "mode_change", id: "exit", mode: "none" });
+    expect(planModeActive(ctx)).toBe(false);
+    const started = success(await stage(repo, main, { action: "start", id: "S01" }));
+    expect(owed()).toMatchObject({ stage: { status: "active", activation: { action: "commit", files: started.changedFiles } } });
+    expect(started.changedFiles).toHaveLength(3);
+    git("add", "-A");
+    git("commit", "-qm", "start S01");
+    expect(owed()).toMatchObject({ stage: { status: "active" } });
+    expect(owed()).not.toHaveProperty("stage.activation");
   });
 
   test("the binding answer says whether the roadmap is usable in the repository: Git, an initialized roadmap and the adr plugin", async () => {

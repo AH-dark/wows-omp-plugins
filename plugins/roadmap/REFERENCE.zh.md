@@ -163,9 +163,10 @@ ADR 归 [adr 插件](../adr/README.zh.md)（`adr_status`、`adr_manage`、`adr_c
 
 事件定义见 [omo-prometheus 参考文档](../omo-prometheus/REFERENCE.zh.md#路线图契约)。在路线图这一侧：
 
-- 路线图会同步回复 `roadmap:binding-request`，附带会话、请求、仓库、受信任的工具来源和可选的已绑定活动阶段。阶段包含 `id`、`title`、`round`，并新增 `criteria`（按文档顺序排列的当前 DC ID，不含已删除的标准）和 `revision`。即使无法读取已绑定阶段的文档，它也会回复，只是不带阶段。没有回复表示未安装路线图。
+- 路线图会同步回复 `roadmap:binding-request`，附带会话、请求、仓库、受信任的工具来源和可选的已绑定阶段。已绑定阶段处于活动状态；如果会话是在 Plan Mode 中绑定而未开始的，则处于计划状态。阶段包含 `id`、`title`、`round`，并新增 `criteria`（按文档顺序排列的当前 DC ID，不含已删除的标准）和 `revision`。即使无法读取已绑定阶段的文档，它也会回复，只是不带阶段。没有回复表示未安装路线图。
 - `revision` 是阶段规划基准的小写 SHA-256 十六进制值，基准为对解析后各节计算的 `JSON.stringify([objective, scope_in, scope_out, done_criteria, design_constraints ?? ""])`（`src/documents.ts` 中的 `planningRevision`）。日期、状态、标题、依赖、风险、修订记录、自由工作日志和 Outcome 都不会改变它。使用方应把它视为不透明值。
-- 路线图会同步回复本会话的 `roadmap:stage-request` `{ v: 1, sessionId, requestId, repoRoot, stage }`，前提是 `repoRoot` 等于会话工作目录所在的 git 工作树根目录，回复为 `roadmap:stage` `{ v: 1, sessionId, requestId, repoRoot, stage? }`。`stage` 为 `{ id, title, round, status, criteria, revision }`，任何状态都会返回；仓库没有路线图、阶段不存在或文档无法读取时不带 `stage`。格式错误的请求不会得到回复。
+- 路线图会同步回复本会话的 `roadmap:stage-request` `{ v: 1, sessionId, requestId, repoRoot, stage }`，前提是 `repoRoot` 等于会话工作目录所在的 git 工作树根目录，回复为 `roadmap:stage` `{ v: 1, sessionId, requestId, repoRoot, stage? }`。`stage` 为 `{ id, title, round, status, criteria, revision, activation? }`，任何状态都会返回；仓库没有路线图、阶段不存在或文档无法读取时不带 `stage`。格式错误的请求不会得到回复。
+- `activation`（新增）表示开始实施前还欠这个阶段什么：阶段仍为计划状态时是 `{ action: "start" }`；磁盘上已是活动状态，但 HEAD 中没有已开始的副本，且阶段文档、轮次索引和路线图索引中有文件与 HEAD 不同时，是 `{ action: "commit", files }`（`files` 列出这些相对仓库根目录的路径）。不欠任何东西时不带该字段。存在该字段时，Atlas 拒绝派发计划行。
 - 路线图发送 `atlas:plans-request` `{ v: 1, sessionId, requestId, repoRoot, stage? }`，并读取同步返回的 `atlas:plans`。它只接受针对本会话和本请求 ID 的回复；只要有一个计划条目格式错误，就丢弃整个回复（每个字段都会检查类型：ID、无重复的 `DC` 标准、64 位十六进制修订号、`unfinished` 或 `complete`、`done` 不超过 `total`、关口、交付和延后发现的结构，以及绝对路径的 `directory`）。多余字段会被忽略，其他仓库或阶段的计划会被排除。没有回复表示没有计划信息。
 - Atlas 只放行来源为扩展、且源路径与握手一致的 `roadmap_*` 工具；其他扩展或 MCP 服务器提供的同名工具不会被放行。每个路线图工具都把这个路径（已加载的 `src/index.ts` 的真实路径）显式声明为自己的来源，因此通过符号链接加载的安装（插件市场的默认布局）也能匹配。
 - 收到 `atlas:completed` v1（结构不变）时，路线图为执行会话保存一条待关闭条目，并在阶段仍处于活动状态时于下一回合加入提醒。提醒会写明已完成的计划，把它的关口结果列为证据候选，并根据针对该阶段重新查询的 `atlas:plans` 回复，列出所有计划对各条标准的覆盖情况、未完成的计划、未声明覆盖范围的计划、漂移、尚未分类的延后发现，以及是否每条当前标准都有已完成的计划声明覆盖。提醒有长度上限；没有回复时只显示完成事件本身。可选的 `delivery: { mode: "pr" | "ship"; summary: string }` 会检查类型，摘要规范为单行并截断至 180 个字符，随待关闭条目持久化，并显示为 `Delivery (<mode>): <summary>`。交付字段无效时拒绝该完成事件；允许省略交付信息，包括此前持久化的 v1 条目。既没有提案时绑定、也没有执行会话绑定的计划，不会关联到任何阶段。

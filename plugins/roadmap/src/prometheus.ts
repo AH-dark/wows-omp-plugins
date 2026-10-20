@@ -1,11 +1,11 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 import { requestAdr } from "#src/adr.ts";
 import { parseDoneCriteria, parseRoadmapIndex, parseStage, planningRevision, type StageDoc } from "#src/documents.ts";
-import { discoverRepo } from "#src/git.ts";
+import { committedFile, discoverRepo, uncommittedFiles } from "#src/git.ts";
 import type { RoadmapSession } from "#src/ses.ts";
 import { TOOL_SOURCE_PATH } from "#src/tools.ts";
 
@@ -30,6 +30,33 @@ function stageFields(stage: StageDoc): ContractStage {
     criteria: parseDoneCriteria(stage.done_criteria).map((criterion) => criterion.id),
     revision: planningRevision(stage),
   };
+}
+
+/**
+ * What an executing session still owes a stage before implementation: start a stage plan mode bound without starting
+ * it, or commit the files that started it, so other work trees and clones see it active. Undefined when nothing is owed.
+ */
+type Activation = { action: "start" } | { action: "commit"; files: string[] };
+
+function activation(repoRoot: string, stage: StageDoc): Activation | undefined {
+  if (stage.status === "planned") return { action: "start" };
+  if (stage.status !== "active") return undefined;
+  const path = relative(repoRoot, stage.path);
+  const committed = committedFile(repoRoot, path);
+  let committedStatus: StageDoc["status"] | undefined;
+  try {
+    committedStatus = committed === undefined ? undefined : parseStage(committed, stage.path).status;
+  } catch {
+    // A committed copy that no longer parses cannot show the start; the dirty-file check below decides.
+  }
+  if (committedStatus !== undefined && committedStatus !== "planned") return undefined;
+  // Start rewrites the stage, its round's stage table and the index; a stage added in the same session is untracked.
+  const files = uncommittedFiles(repoRoot, [
+    path,
+    relative(repoRoot, join(dirname(dirname(stage.path)), "README.md")),
+    "docs/roadmap/README.md",
+  ]);
+  return files.length ? { action: "commit", files } : undefined;
 }
 
 /** Read one stage synchronously: pi.events cannot await an answer. Throws when the roadmap documents are unreadable. */
@@ -110,7 +137,8 @@ export function registerPrometheusContract(pi: ExtensionAPI, ses: RoadmapSession
     try {
       const binding = ses.getBinding(repoRoot);
       const bound = binding ? readStage(repoRoot, binding.stage) : undefined;
-      stage = bound?.status === "active" ? stageFields(bound) : undefined;
+      // A planned stage is bound only in plan mode, which defers its start to execution.
+      stage = bound?.status === "active" || bound?.status === "planned" ? stageFields(bound) : undefined;
     } catch (error) {
       // Tool provenance must not depend on readable stage documents; answer without a stage.
       pi.logger.warn("roadmap could not read the bound stage for Prometheus", { error: String(error) });
@@ -141,11 +169,14 @@ export function registerPrometheusContract(pi: ExtensionAPI, ses: RoadmapSession
       !/^S\d+$/.test(payload.stage)
     )
       return;
-    let stage: (ContractStage & { status: StageDoc["status"] }) | undefined;
+    let stage: (ContractStage & { status: StageDoc["status"]; activation?: Activation }) | undefined;
     try {
       if (discoverRepo(ctx.cwd)?.repoRoot !== payload.repoRoot) return;
       const current = readStage(payload.repoRoot, payload.stage);
-      stage = current ? { ...stageFields(current), status: current.status } : undefined;
+      if (current) {
+        const owed = activation(payload.repoRoot, current);
+        stage = { ...stageFields(current), status: current.status, ...(owed ? { activation: owed } : {}) };
+      }
     } catch (error) {
       // A repository without a roadmap or with unreadable documents answers without a stage.
       pi.logger.warn("roadmap could not read the requested stage for Prometheus", { error: String(error) });

@@ -174,6 +174,11 @@ export interface StageOptions extends MutationOptions {
    * shows them in the handoff; close records the unfinished ones as a deviation.
    */
   plans?: readonly AtlasStagePlan[];
+  /**
+   * Start runs inside native plan mode, which cannot commit: validate and bind without writing, leaving a planned stage
+   * planned until execution starts it.
+   */
+  planning?: boolean;
 }
 
 export interface PreparedOperation {
@@ -945,12 +950,16 @@ export async function stage(repo: Repo, actor: Actor, input: StageOperationInput
         if (current.status === "active") {
           mutation.warnings.push("another session may be working on this stage");
           mutation.readOnly = true;
+        } else if (options.planning) {
+          mutation.readOnly = true;
         } else {
           current.status = "active";
           current.started = new Date().toISOString().slice(0, 10);
           mutation.put(current.path, renderStage(current));
         }
         mutation.handoff = renderHandoff(model, current, today(), options.plans);
+        if (options.planning && current.status === "planned")
+          return `Bound ${current.id} — ${current.title} for planning without starting it: it stays planned and nothing was written. Before implementation begins outside plan mode, start it with roadmap_stage start and commit the files it lists.`;
         return `Planning handoff for ${current.id} — ${current.title}.`;
       }
       if (input.action === "edit") {

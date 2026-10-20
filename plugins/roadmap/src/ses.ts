@@ -48,6 +48,29 @@ export function actor(ctx: ExtensionContext): Actor {
   return { sessionId: ctx.sessionManager.getSessionId(), kind: ctx.agent.kind };
 }
 
+/**
+ * Native plan mode, read from the session branch: the host exposes no plan-mode accessor to extensions, and records
+ * every entry and exit as a `mode_change` entry (`plan` on entry, another mode or `none` on exit).
+ */
+export function planModeActive(ctx: ExtensionContext): boolean {
+  const branch = ctx.sessionManager.getBranch();
+  for (let index = branch.length - 1; index >= 0; index--) {
+    const entry = branch[index];
+    if (entry?.type === "mode_change") return entry.mode === "plan";
+  }
+  return false;
+}
+
+/** A session may stay bound to an unclosed stage of the active round: active, or planned when bound in plan mode. */
+export function bindable(model: Model, stageId: string): boolean {
+  return model.stages.some(
+    (stage) =>
+      stage.id === stageId &&
+      (stage.status === "active" || stage.status === "planned") &&
+      model.rounds.some((round) => round.id === stage.round && round.status === "active"),
+  );
+}
+
 /** One instance per extension factory; the current branch is the durable source of truth. */
 export class RoadmapSession {
   private sessionId?: string;
@@ -191,18 +214,9 @@ export class RoadmapSession {
   validateBinding(ctx: ExtensionContext, repoRoot: string, model: Model): string | undefined {
     this.ensure(ctx);
     const binding = this.getBinding(repoRoot);
-    if (
-      !binding ||
-      model.stages.some(
-        (stage) =>
-          stage.id === binding.stage &&
-          stage.status === "active" &&
-          model.rounds.some((round) => round.id === stage.round && round.status === "active"),
-      )
-    )
-      return;
+    if (!binding || bindable(model, binding.stage)) return;
     this.dropBinding(ctx, repoRoot, binding.stage);
-    return `Previous binding ${binding.stage} is no longer active on disk; dropped this session's binding.`;
+    return `Previous binding ${binding.stage} is no longer an unclosed stage of the active round on disk; dropped this session's binding.`;
   }
 
   overlapAnswer(ctx: ExtensionContext, repoRoot: string, stage: string): OverlapAnswer | undefined {

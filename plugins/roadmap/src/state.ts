@@ -1,5 +1,5 @@
 import { type Format, type Model, overdue, type RoundDoc, type StageDoc, type StageStatus, today } from "#src/documents.ts";
-import type { Binding } from "#src/ses.ts";
+import { type Binding, bindable } from "#src/ses.ts";
 
 export const ROADMAP_STATUS_KIND = "roadmap/status";
 
@@ -95,11 +95,8 @@ export function roadmapStatus(repoRoot: string, model: Model, binding: Binding |
       else untargeted++;
     }
   }
-  // A binding whose stage is no longer active on disk is dropped at the next turn; never report it as bound.
-  const bound =
-    binding && model.stages.some((stage) => stage.id === binding.stage && stage.status === "active" && stage.round === round?.id)
-      ? binding.stage
-      : null;
+  // A binding whose stage left the active round's unclosed stages is dropped at the next turn; never report it as bound.
+  const bound = binding && bindable(model, binding.stage) ? binding.stage : null;
   return {
     kind: ROADMAP_STATUS_KIND,
     version: 1,
