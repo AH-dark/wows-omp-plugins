@@ -607,6 +607,24 @@ export default function prometheus(pi: ExtensionAPI): void {
     return `Roadmap stage ${approved.id} (${current.title}) changed after plan ${plan.name} was approved: its objective, scope, done criteria or design constraints differ. Atlas continues; re-check the plan against the stage's current done criteria (${current.criteria.join(", ") || "none"})${retired.length ? `, where the declared ${retired.join(", ")} no longer appear` : ""}.`;
   };
 
+  /** Why row work must wait for the approved stage's start or its commit; undefined when nothing is owed or roadmap is silent. */
+  const stageActivationBlock = (ctx: ExtensionContext, record: SessionRecord): string | undefined => {
+    const approved = record.roadmapStage;
+    if (!approved) return undefined;
+    let answer: RoadmapStageAnswer | undefined;
+    try {
+      answer = roadmap.requestStage(ctx.sessionManager.getSessionId(), approved.repoRoot, approved.id);
+    } catch (error) {
+      pi.logger.warn("Atlas could not ask the roadmap plugin for its stage", { error: errorMessage(error) });
+      return undefined;
+    }
+    const owed = answer?.stage?.activation;
+    if (!owed) return undefined;
+    return owed.action === "start"
+      ? `roadmap stage ${approved.id} is still planned: planning bound it without starting it. Call roadmap_stage with action "start" and id "${approved.id}", then commit the files its result lists with atlas_git commit, before dispatching row work.`
+      : `the start of roadmap stage ${approved.id} is not committed. Commit ${owed.files.join(", ")} with atlas_git commit before dispatching row work, so other work trees and clones see the stage active.`;
+  };
+
   const clearObservation = (ctx: ExtensionContext, sessionId: string): void => {
     liveModels.get(sessionId)?.dispose();
     liveModels.delete(sessionId);
@@ -2649,7 +2667,8 @@ export default function prometheus(pi: ExtensionAPI): void {
       }
     }
     // ask holds the whole session until the user answers, so no child is recorded and nothing is dispatched meanwhile.
-    if (!detail && event.toolName === "ask") {
+    // While the stage's start is owed no row can move, so a failed start can always reach the user.
+    if (!detail && event.toolName === "ask" && !stageActivationBlock(ctx, record)) {
       const ledger = await readLedger(ctx, record);
       const movable = ledger ? movableRows(ledger) : [];
       if (movable.length) {
@@ -2672,6 +2691,8 @@ export default function prometheus(pi: ExtensionAPI): void {
         return { block: true, reason: `Task dispatch refused: ${errorMessage(error)}. /atlas exit is the user exit.` };
       }
     } else if (!detail && event.toolName === "task") {
+      const activation = stageActivationBlock(ctx, record);
+      if (activation) return { block: true, reason: `Atlas stage guard: ${activation}` };
       const originSessionId = ctx.sessionManager.getSessionId();
       // Host isolation copies and merges through Git, so outside a work tree an isolated spawn always fails.
       const isolationRequired = cfgTaskIsolationEnabled.get(live.settings) && (await isGitWorkTree(ctx.cwd));

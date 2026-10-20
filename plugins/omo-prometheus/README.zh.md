@@ -193,6 +193,7 @@ omp plugin config set wows-omp-plugin-omo-prometheus reviewLevel standard
 - `judge-dispatch`：计划执行期间不改派任何调用，也从不改派 `metis`、`momus` 或 `oracle`。
 - `omp-herdr-dag`：以实时依赖图显示 Atlas 的任务、发现任务、修正、关口和交付。
 - `roadmap`：在绑定了路线图阶段时提出的计划会记住该阶段及其声明的完成标准。一个阶段可以由多个计划共同交付；路线图插件会向 Atlas 查询某个阶段有哪些计划、各自覆盖哪些标准、进展到哪一步。Atlas 可以使用路线图工具；路线图在仓库中可用时（Git 工作树中有已初始化的路线图，并装有 `adr` 插件），它会为每条延后发现创建路线图 TODO。如果批准后阶段的目标、范围、完成标准或设计约束发生变化，`/atlas <计划>` 和计划完成时都会显示提示，但执行不会因此暂停。计划完成后（`pr` 和 `ship` 计划在交付之后），会话会收到提醒，评估是否关闭该阶段：只有每条当前完成标准都有某个计划的通过证据时才关闭，阶段也不会被自动关闭。
+  由于 Plan Mode 无法提交，规划期间开始阶段只会绑定它；Atlas 会在第一个任务之前开始该阶段并提交，完成之前拒绝派发任务。
 - `adr`：Atlas 可以使用 ADR 工具，与是否安装 `roadmap` 无关。ADR 的接受、拒绝和取代由 Atlas 通过 `adr_manage` 完成，子代理无权决定；阶段还有提议中的 ADR 时无法关闭，需要先处理这些 ADR。
 - [Magic Context](https://github.com/cortexkit/magic-context)：它的 `ctx_*` 工具在 Atlas 中保持可用。
 

@@ -157,6 +157,7 @@ async function scenario(name: string, root: string): Promise<void> {
       getAllTools: () => [
         { name: "task", description: "# Available Agents\n- `task`: worker\n- `reviewer`: review", sourceInfo: { source: "builtin" } },
         { name: "write", sourceInfo: { source: "builtin" } },
+        { name: "ask", sourceInfo: { source: "builtin" } },
         { name: "roadmap_stage", sourceInfo: { source, path: sourcePath } },
         { name: "adr_manage", sourceInfo: { source: "extension", path: adrSourcePath } },
         ...[...tools.values()].map((tool) => ({ name: tool.name, sourceInfo: { source: "extension", path: PROMETHEUS_ENTRY } })),
@@ -186,6 +187,8 @@ async function scenario(name: string, root: string): Promise<void> {
   // Only the criteria scenario models a roadmap that reports criteria and a planning-basis revision.
   const criteria = name === "criteria" ? ["DC1", "DC2", "DC3"] : undefined;
   let revision = REVISION_A;
+  // What the criteria scenario's roadmap says execution still owes the stage before row work.
+  let activation: Record<string, unknown> | undefined;
   // Whether roadmap_todo can work in the repository: the criteria scenario models a usable roadmap, unbound an installed
   // roadmap in a repository without one, and the rest an older roadmap release that does not say.
   const usable = name === "criteria" ? true : name === "unbound" ? false : undefined;
@@ -210,7 +213,15 @@ async function scenario(name: string, root: string): Promise<void> {
         sessionId: request.sessionId,
         requestId: request.requestId,
         repoRoot: request.repoRoot,
-        stage: { id: request.stage, title: "Checkout", round: "R1", status: "active", criteria, revision },
+        stage: {
+          id: request.stage,
+          title: "Checkout",
+          round: "R1",
+          status: "active",
+          criteria,
+          revision,
+          ...(activation ? { activation } : {}),
+        },
       });
     });
     return () => {
@@ -476,6 +487,27 @@ async function scenario(name: string, root: string): Promise<void> {
     });
     return await call({ action: "done", id, childAgentId, evidence: "Caller inspection, not the gate summary" });
   };
+  if (criteria) {
+    // A stage start that planning deferred, or that nobody committed, holds row work; ask stays open so a failed start reaches the user.
+    const rowDispatch = {
+      toolName: "task",
+      toolCallId: "held-dispatch",
+      input: { agent: "task", task: `atlas_assignment: ${JSON.stringify({ planSha256: "0".repeat(64), rows: { T1: 1 } })}\nPerform T1.` },
+    };
+    const ask = { toolName: "ask", toolCallId: "held-ask", input: { questions: [] } };
+    for (const [owed, reason] of [
+      [{ action: "start" }, /S01 is still planned.*roadmap_stage.*atlas_git commit/],
+      [{ action: "commit", files: ["docs/roadmap/README.md"] }, /S01 is not committed.*docs\/roadmap\/README\.md.*atlas_git commit/],
+    ] as const) {
+      activation = owed;
+      const held = (await hook("tool_call", rowDispatch)) as { block: boolean; reason: string };
+      assert.equal(held.block, true);
+      assert.match(held.reason, reason);
+      assert.equal(await hook("tool_call", ask), undefined);
+    }
+    activation = undefined;
+    assert.equal(((await hook("tool_call", ask)) as { block: boolean }).block, true);
+  }
   for (const id of ["T1", "F1", "F2", "F3"]) {
     await finish(id);
     assert.equal(completionEvents.length, 0);

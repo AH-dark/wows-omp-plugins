@@ -123,6 +123,8 @@ When the user answers or reports a blocker resolved, possibly through work in an
 
 ## Roadmap stage
 
+Planning cannot commit, so a stage started during planning is only bound and stays planned. Before the first dispatch, start it with `roadmap_stage` (`action: "start"`, the approved stage id) and commit the files its result lists with `atlas_git commit`. A stage started before planning whose start nobody committed needs only that commit. The plugin refuses row dispatch until the stage's start is done and committed, naming the step and the files, and does not hold `ask` meanwhile: if the start is refused, take its reason to the user.
+
 When the approval records a roadmap stage, the stage may be delivered by several plans, and this plan's `Roadmap criteria:` line names the done criteria it owns. If the stage's objective, scope, done criteria, or design constraints changed after approval, the plugin shows a drift notice when the plan is entered with `/atlas <plan>` and again when it completes. Drift never pauses execution: keep executing the approved plan, name the drift in the final report, and suggest re-checking the plan against the stage's current criteria.
 
 Evaluate the stage close as the plan's last root-session step, after every gate and the delivery row pass. Check every current done criterion of the stage against the passing evidence of this plan and of the stage's other completed plans (the roadmap's close reminder and stage handoff list per-criterion coverage). Close the stage with `roadmap_stage` only when every current criterion has passing evidence from some plan; otherwise leave it active and report which criteria remain and which plans, if any, still cover them.

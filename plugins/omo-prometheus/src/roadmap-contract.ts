@@ -45,6 +45,11 @@ export interface RoadmapStageAnswer {
     status: "planned" | "active" | "closed" | "dropped";
     criteria: string[];
     revision: string;
+    /**
+     * What execution still owes the stage before implementation: `start` a stage plan mode bound without starting it,
+     * or `commit` the listed repository-relative files that started it. Absent when nothing is owed or from older releases.
+     */
+    activation?: { action: "start" } | { action: "commit"; files: string[] };
   };
 }
 
@@ -104,6 +109,21 @@ function criterionIds(value: unknown, nonEmpty: boolean): value is string[] {
     (!nonEmpty || value.length > 0) &&
     value.every((id) => typeof id === "string" && CRITERION_ID.test(id)) &&
     new Set(value).size === value.length
+  );
+}
+
+/** Absent, a start, or a commit of non-empty repository-relative paths that stay inside the repository. */
+function validActivation(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!object(value)) return false;
+  if (value.action === "start") return true;
+  return (
+    value.action === "commit" &&
+    Array.isArray(value.files) &&
+    value.files.length > 0 &&
+    value.files.every(
+      (file) => typeof file === "string" && file !== "" && file.trim() === file && !isAbsolute(file) && !file.split(/[\\/]/).includes(".."),
+    )
   );
 }
 
@@ -239,7 +259,8 @@ export class RoadmapContract {
           STAGE_STATUSES[found.status] !== true ||
           !criterionIds(found.criteria, false) ||
           typeof found.revision !== "string" ||
-          !REVISION.test(found.revision))
+          !REVISION.test(found.revision) ||
+          !validActivation(found.activation))
       )
         return;
       answer = payload as unknown as RoadmapStageAnswer;
