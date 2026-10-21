@@ -178,6 +178,7 @@ describe("routing authority boundaries", () => {
     { name: "metis", readOnly: true },
     { name: "momus", readOnly: true },
     { name: "oracle", readOnly: true },
+    { name: "seance", readOnly: true },
     { name: "reviewer", readOnly: true },
   ];
 
@@ -187,7 +188,7 @@ describe("routing authority boundaries", () => {
   });
 
   test("keeps workflow-owned and unknown explicit sources untouched, including effort", () => {
-    for (const name of ["audit-fixer", "audit-auditor", "metis", "momus", "oracle", "unknown-agent"]) {
+    for (const name of ["audit-fixer", "audit-auditor", "metis", "momus", "oracle", "seance", "unknown-agent"]) {
       expect(routableCandidates(name, candidates)).toBeUndefined();
     }
   });

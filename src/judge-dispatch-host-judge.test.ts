@@ -988,6 +988,70 @@ async function registerTests(): Promise<void> {
       });
     });
 
+    test("seance is never an automatic destination and explicit items keep their native contract", async () => {
+      await withProjects([{ judgeEffort: true, modelTiers: "seance.demanding=@abliterated" }], async ([project]) => {
+        const ordinary = { agent: "task", task: "Review the repository boundary", name: "Review" };
+        const seance = {
+          agent: "seance",
+          task: "Consult the saved session",
+          name: "Consult",
+          sourceSession: "saved-session",
+          model: "openai/gpt-5-mini",
+          effort: "lo",
+        };
+        const savedModel = { agent: "seance", task: "Consult another saved session", sourceSession: "other-session" };
+        const batch = { context: "Review with saved context", tasks: [ordinary, seance, savedModel] };
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 2,
+              description: `${TASK_DESCRIPTION}\n### seance\nRead-only saved-session consultant`,
+              inputs: [{ context: "Saved context", tasks: [seance, savedModel] }, batch],
+            },
+          ],
+          response: "success",
+          hostKey: HOST_KEY,
+          agentChoice: "seance",
+        });
+        expect(report.requests).toHaveLength(1);
+        const request = JSON.parse(report.requests[0]?.body as string);
+        expect(request.state.candidates.map((candidate: { name: string }) => candidate.name)).toEqual(["scout", "task"]);
+        expect(report.sessions[0]?.results, diagnostics(report)).toEqual([
+          null,
+          { input: { ...batch, tasks: [{ ...ordinary, agent: "scout" }, seance, savedModel] } },
+        ]);
+      });
+    });
+
+    test("seance pins refuse the whole call without rewriting or retaining another item's pin", async () => {
+      await withProjects([{}], async ([project]) => {
+        const item = (agent: string) => ({ agent, task: "Consult the saved session", sourceSession: "saved-session" });
+        const inputs = [
+          { context: "Saved context", tasks: [item("seance@abliterated")] },
+          { context: "Saved context", tasks: [item("seance@openai/gpt-5-mini")] },
+          { context: "Saved context", tasks: [pinnedTask("Good", "task@abliterated"), item("seance@abliterated")] },
+        ];
+        const report = await runIsolatedScenario({
+          sessions: [
+            {
+              project: project as string,
+              calls: 0,
+              steps: [...inputs.map((call, index) => ({ call, id: `seance-pin-${index}` })), { spawn: taskSpawn, allocate: "Good" }],
+            },
+          ],
+          response: "success",
+          explicitRole: true,
+        });
+        expect(report.sessions[0]?.steps, diagnostics(report)).toEqual([
+          ...inputs.map(() => ({ block: true, reason: expect.any(String) })),
+          { spawnKey: "Good", result: null },
+        ]);
+        expect(report.requests).toEqual([]);
+        expect(report.sessions[0]?.notifications).toEqual([]);
+      });
+    });
+
     test("unknown or disabled rosters, unresolved access, and reserved sources do not change agent or effort", async () => {
       await withProjects([{ judgeEffort: true }], async ([project]) => {
         const inputs = ["metis", "momus", "oracle", "audit-auditor", "unknown-agent"].map((agent) => ({

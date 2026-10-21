@@ -43,6 +43,7 @@ With `routeAgent` on (the default), the plugin may rewrite the `agent` field of 
 These calls are left exactly as they are, thinking level and model included:
 
 - requests for `audit-*`, `metis`, `momus` or `oracle`; ordinary requests are never routed into these workflow roles either;
+- requests for OMP's bundled `seance`, which consults a saved session through its native `sourceSession` and optional `model` fields; ordinary requests are never routed to it either;
 - requests for an agent the plugin cannot find in the list, since its access level is unknown;
 - every `task` call while an `omo-prometheus` plan is executing, because the approved plan owns those choices.
 
@@ -101,6 +102,8 @@ The plugin removes the pin before OMP runs the call, so the child runs as `deep-
 A pinned child gets a unique id such as `ReviewLogic_jd0123456789ab`, so no queued or later task that reuses the name can take its model. OMP shows and keeps the rewritten call, so the plugin also tells the parent agent which pins it applied; the task result returns the new id, and the parent should address the child by it.
 
 A pin that cannot apply refuses the whole call and says why, rather than running on the agent's own model: an unknown role, a model that does not resolve, a workflow-owned agent such as `metis`, or any pin while an approved Prometheus plan executes. Without this plugin, OMP itself rejects `deep-low@abliterated` as an unknown agent. A pin replaces the model list, not OMP's role identity, so OMP's credential fallback and higher-priority retry rules still apply. A pin with no fallback chain of its own is refused at spawn if OMP would otherwise retry it on the agent's original role chain. See [the reference](REFERENCE.md#from-a-pinned-agent-to-spawn).
+
+`seance@<role>` and `seance@<provider>/<model>` are also refused: OMP's bundled `seance` bypasses the spawn hook that applies pins. Put the selector in that item's native `model` field instead, or omit it to use the source session's saved model.
 
 ### What you see
 

@@ -43,6 +43,7 @@ judge-dispatch  #1 explore → task (0.87) ; #2 task kept (0.93) · thinking med
 以下调用保持原样，思考级别和模型也不变：
 
 - 请求 `audit-*`、`metis`、`momus` 或 `oracle` 的调用；普通请求也不会被改派到这些工作流角色；
+- 请求 OMP 内置 `seance` 的调用；它通过原生 `sourceSession` 和可选的 `model` 字段查阅已保存的会话，普通请求也不会被改派给它；
 - 请求了插件在列表中找不到的代理，因为无法确定它的权限级别；
 - `omo-prometheus` 计划执行期间的所有 `task` 调用，因为这些选择由已批准的计划决定。
 
@@ -101,6 +102,8 @@ task({"name":"ReviewLogic","agent":"deep-low@abliterated","task":"Review the log
 被固定的子代理会得到唯一 ID，例如 `ReviewLogic_jd0123456789ab`，因此排队中或之后复用同名的任务都拿不走它的模型。OMP 会显示并保存改写后的调用，所以插件还会告诉父代理应用了哪些固定；任务结果会返回新 ID，父代理应当用它指代该子代理。
 
 固定无法生效时，插件会拒绝整次调用并说明原因，而不是改用代理自己的模型运行。这些情况包括：未知角色、无法解析的模型、`metis` 这类工作流专属代理，以及已批准的 Prometheus 计划执行期间的任何固定。未安装本插件时，OMP 自身会把 `deep-low@abliterated` 当作未知代理拒绝。固定替换的是模型列表，不是 OMP 记录的角色身份，所以 OMP 的凭据回退和更高优先级的重试规则仍会生效。若固定目标自己没有回退链，而 OMP 会改用代理原角色的回退链重试，插件会在派生时拒绝。详见[参考](REFERENCE.zh.md#从固定代理到派生)。
+
+`seance@<role>` 和 `seance@<provider>/<model>` 也会被拒绝：OMP 内置的 `seance` 会绕过应用固定的派生钩子。请把选择器写入该条目的原生 `model` 字段，或省略该字段，使用源会话保存的模型。
 
 ### 你会看到什么
 

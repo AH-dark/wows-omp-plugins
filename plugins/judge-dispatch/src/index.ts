@@ -544,6 +544,9 @@ function applyPins(
     if (!route.requestedAgent || !route.explicitModel) {
       throw new Error(`write the agent as <agent>@<model role> or <agent>@<provider>/<model>, not ${JSON.stringify(label)}`);
     }
+    if (route.requestedAgent === "seance") {
+      throw new Error("seance bypasses the model-pin spawn hook; put the selector in that item's native model field instead");
+    }
     if (isWorkflowOwnedAgent(route.requestedAgent)) throw new Error(`workflow-owned agent ${route.requestedAgent} keeps its own model`);
     try {
       return explicitSpawnModel(route.explicitModel, ctx);
