@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/roadmap@0.6.1...roadmap@0.6.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* **roadmap:** bind stages without writing in plan mode and report the start execution still owes ([4411696](https://github.com/TheOrdinaryWow/wows-omp-plugins/commit/4411696fc39da84c24f1a78bc77b7194e8507705))
+
 ## [0.6.1](https://github.com/TheOrdinaryWow/wows-omp-plugins/compare/roadmap@0.6.0...roadmap@0.6.1) (2026-10-14)
 
 

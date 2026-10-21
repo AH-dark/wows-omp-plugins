@@ -1,6 +1,6 @@
 {
   "name": "roadmap",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Tool-managed project rounds, stages and TODOs, with stage-linked ADRs through the adr plugin",
   "author": {
     "name": "TheOrdinaryWow"

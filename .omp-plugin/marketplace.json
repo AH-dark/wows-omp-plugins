@@ -49,7 +49,7 @@
       "name": "judge-dispatch",
       "source": "./judge-dispatch",
       "description": "Route OMP subagent types with native judge-role judgments",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "author": {
         "name": "TheOrdinaryWow"
       },
@@ -82,7 +82,7 @@
       "name": "omo-prometheus",
       "source": "./omo-prometheus",
       "description": "Port of oh-my-openagent Prometheus planning and Atlas orchestration for OMP",
-      "version": "0.22.3",
+      "version": "0.22.4",
       "author": {
         "name": "TheOrdinaryWow"
       },
@@ -140,7 +140,7 @@
       "name": "roadmap",
       "source": "./roadmap",
       "description": "Tool-managed project rounds, stages and TODOs, with stage-linked ADRs through the adr plugin",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "author": {
         "name": "TheOrdinaryWow"
       },
