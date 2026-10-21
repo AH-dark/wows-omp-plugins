@@ -1958,8 +1958,7 @@ async function scenario(name: string, root: string): Promise<void> {
     // Host modules load only inside the isolated child process, after HOME is private.
     const { lookup } = await import("@oh-my-pi/pi-coding-agent/config/registry");
     const structured = lookup("task.structured");
-    // Hosts before 18.10.2 register no such setting and always offer outputSchema and schemaMode.
-    if (!structured) return;
+    assert.ok(structured);
     // Gates and verifiers need outputSchema and schemaMode, which the host offers only while task.structured is on.
     assert.equal(structured.get(settings), true);
     await hook("before_agent_start", { prompt: "Continue", systemPrompt: [] });
