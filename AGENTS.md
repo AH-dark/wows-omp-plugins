@@ -62,15 +62,21 @@ REFERENCE*.md                  plugin-state snapshot envelope shared by plugins
 
 ## Host version floor
 
-The floor (the oldest omp every plugin supports, currently 18.10.4) is ours to
-raise; users of this marketplace are not expected to stay on old hosts. Decided
-by the maintainer:
+The plugins track the latest omp release and keep working on every release
+from the floor (the oldest omp every plugin supports, currently 18.10.4) up to
+it. That range is held by code that is correct on all of them, never by
+workarounds. Decided by the maintainer:
 
-- Do not write compatibility code for hosts below the newest release that has
-  what we need: no version probes, feature detection of host APIs, fallback
-  paths or shims. Raise the floor instead.
-- When a newer release offers an interface that makes a plugin simpler or more
-  reliable, adopting it and raising the floor is allowed without asking first.
+- Keep the dev dependency in `bun.lock` on the latest release. When a new
+  release lands, check it for breaking changes and adapt promptly; CI runs the
+  locked version and the floor, so both ends stay covered.
+- Prefer an adaptation that is correct on both the latest release and the
+  floor without branching on the host: no version probes, feature detection
+  of host APIs, fallback paths or shims.
+- When the latest release offers a feature or interface a plugin can use that
+  the floor lacks, or an adaptation cannot be correct on both without such
+  compatibility code, raise the floor instead. That needs no prior approval;
+  keeping old hosts working is never a reason to add a workaround.
 - One floor covers every plugin. Raising it moves together: the CI matrix entry
   in `.github/workflows/ci.yml`, the requirement line in the root and every
   plugin README (English and Chinese), the version in this file, and the
@@ -203,8 +209,8 @@ It derives its legal agent set from the live `task` tool description and reads
 its settings on every call from `ctx.cwd` (never `process.cwd()`), because plugin
 settings are project-scoped and several sessions can share one process.
 
-Its runtime floor, like every plugin's, is omp 18.10.4; the locked dev dependency
-tracks a newer release, so CI covers both ends. The SDK harness uses
+Its runtime floor, like every plugin's, is omp 18.10.4; CI also tests the locked
+dev dependency, which may track a newer release, so it covers both ends. The SDK harness uses
 `CreateAgentSessionOptions.cacheWarming`, introduced in 18.3.5, to prevent
 background provider requests during isolated tests. Before relying on a new host
 API, type-check a throwaway copy against the floor
