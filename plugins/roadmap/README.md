@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/TheOrdinaryWow/wows-omp-plugins/main/.github/banners/roadmap-dark.png">
+  <img alt="roadmap" src="https://raw.githubusercontent.com/TheOrdinaryWow/wows-omp-plugins/main/.github/banners/roadmap-light.png">
+</picture>
+
 # roadmap
 
 English | [简体中文](README.zh.md)

@@ -133,7 +133,9 @@ name segment — `#src/*`, not `#/*`.
    file mirrors its sections. Both ship with the plugin.
 6. Add the entry to [.omp-plugin/marketplace.json](file:///./.omp-plugin/marketplace.json)
    with `"source": "./<name>"` — `metadata.pluginRoot` already prepends `./plugins`.
-7. Add a row to the root README plugin table pointing at the new plugin README.
+7. Add a row to the root README plugin table pointing at the new plugin README,
+   and give the plugin a README banner as described in
+   [.github/banners/README.md](file:///./.github/banners/README.md).
 8. Register the plugin with release-please: a `packages` entry in
    `release-please-config.json` (copy an existing one; its extra-files keep
    `plugin.json` and the catalog entry in step) and its version in

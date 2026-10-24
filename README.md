@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/banners/root-dark.png">
+  <img alt="wows-omp-plugins" src=".github/banners/root-light.png">
+</picture>
+
 # wows-omp-plugins
 
 English | [简体中文](README.zh.md)

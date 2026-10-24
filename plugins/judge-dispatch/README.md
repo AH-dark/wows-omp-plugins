@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/TheOrdinaryWow/wows-omp-plugins/main/.github/banners/judge-dispatch-dark.png">
+  <img alt="judge-dispatch" src="https://raw.githubusercontent.com/TheOrdinaryWow/wows-omp-plugins/main/.github/banners/judge-dispatch-light.png">
+</picture>
+
 # judge-dispatch
 
 English | [简体中文](README.zh.md)

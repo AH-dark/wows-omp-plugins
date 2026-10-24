@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/TheOrdinaryWow/wows-omp-plugins/main/.github/banners/audit-goal-dark.png">
+  <img alt="audit-goal" src="https://raw.githubusercontent.com/TheOrdinaryWow/wows-omp-plugins/main/.github/banners/audit-goal-light.png">
+</picture>
+
 # audit-goal
 
 [English](README.md) | 简体中文
