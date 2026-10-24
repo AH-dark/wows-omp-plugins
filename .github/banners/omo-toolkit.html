@@ -4,14 +4,55 @@
     <meta charset="utf-8" />
     <title>omo-toolkit</title>
     <link rel="stylesheet" href="banner.css" />
+    <style>
+      /* figure: a task call routed to agent lanes, with the escalation path */
+      .r-src {
+        fill: var(--ink);
+      }
+      .r-src-lbl {
+        font: 700 15px var(--mono);
+        fill: var(--paper);
+      }
+      .r-wire {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 1;
+      }
+      .r-tile {
+        fill: var(--paper);
+        stroke: var(--ink);
+        stroke-width: 1;
+      }
+      .r-tile.pick {
+        fill: var(--accent);
+        stroke: var(--accent);
+        stroke-width: 1;
+      }
+      .r-lbl {
+        font: 500 15px var(--mono);
+        fill: var(--ink);
+      }
+      .r-lbl.pick {
+        font-weight: 700;
+        fill: var(--paper);
+      }
+      .r-note {
+        font: 500 15px var(--mono);
+        fill: var(--paper);
+      }
+      .r-esc {
+        font: 700 15px var(--mono);
+        letter-spacing: 0.02em;
+        fill: var(--accent);
+      }
+    </style>
     <script>
       document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
     </script>
   </head>
   <body>
     <div class="grid meta">
-      <div class="idx"><b>05</b> / 08</div>
-      <div>wows-omp-plugins</div>
+      <div class="series">wows-omp-plugins</div>
       <div>task · /skill:</div>
     </div>
     <div class="rule top"></div>
@@ -22,75 +63,50 @@
         <div class="tag">Category and research agents, workflow skills and two docs MCP servers, adapted from OmO.</div>
       </div>
       <div class="fig">
-        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Agent selection: pick a lane, start with deep-low, escalate to deep-high, then ask you; plus 8 agents, 8 skills and 2 MCP servers">
+        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="A task call is routed to an agent lane: ultrabrain, visual-engineering, deep-low (the default), writing or librarian. deep-low escalates material choices to deep-high, which escalates to you.">
           <defs>
-            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
-            </marker>
             <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
               <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
             </marker>
           </defs>
 
-          <!-- selection protocol: pick lane -> deep-low -> escalate to deep-high -> escalate to you -->
-          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="10" y="20">01</text>
-          <text class="d-lbl" x="10" y="40">Pick lane</text>
-          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="136" y="20">02</text>
-          <text class="d-lbl" x="136" y="40">deep-low</text>
-          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="262" y="20">03</text>
-          <text class="d-lbl" x="262" y="40">deep-high</text>
-          <rect class="d-end" x="378" y="0" width="106" height="49" />
-          <text class="d-num" x="388" y="20">04</text>
-          <text class="d-end-lbl" x="388" y="40">Ask you</text>
-          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
-          <line class="d-accent" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head-accent)" />
-          <line class="d-accent" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head-accent)" />
+          <!-- incoming task call -->
+          <rect class="r-src" x="0" y="80" width="76" height="32" />
+          <text class="r-src-lbl" x="38" y="101" text-anchor="middle">task</text>
 
-          <!-- escalation span -->
-          <path class="d-accent" d="M179,57 V72 H431 V57" />
-          <rect class="d-mask" x="255" y="62" width="100" height="20" />
-          <text class="d-mono accent" x="305" y="77" text-anchor="middle">ESCALATE</text>
+          <!-- fan-out bus to five lanes (rows at y 0/40/80/120/160, 32 tall) -->
+          <path class="r-wire" d="M76,96.5 H100 M100.5,16 V176 M100,16.5 H124 M100,56.5 H124 M100,136.5 H124 M100,176.5 H124" />
+          <path class="d-accent" d="M100,96 H122" />
 
-          <!-- inventory: 8 agents, 8 skills, 2 MCP servers -->
-          <g transform="translate(0,108)">
-            <rect class="d-fill-accent" x="0" y="0" width="16" height="16" />
-            <rect class="d-fill-accent" x="22" y="0" width="16" height="16" />
-            <rect class="d-fill-accent" x="44" y="0" width="16" height="16" />
-            <rect class="d-fill-accent" x="66" y="0" width="16" height="16" />
-            <rect class="d-fill-accent" x="88" y="0" width="16" height="16" />
-            <rect class="d-fill-accent" x="110" y="0" width="16" height="16" />
-            <rect class="d-fill-accent" x="132" y="0" width="16" height="16" />
-            <rect class="d-fill-accent" x="154" y="0" width="16" height="16" />
-            <text class="d-mono" x="196" y="14">8 agents → task</text>
+          <rect class="r-tile" x="124.5" y="0.5" width="188" height="31" />
+          <text class="r-lbl" x="136" y="21">ultrabrain</text>
+          <rect class="r-tile" x="124.5" y="40.5" width="188" height="31" />
+          <text class="r-lbl" x="136" y="61">visual-engineering</text>
+          <rect class="r-tile pick" x="124" y="80" width="189" height="32" />
+          <text class="r-lbl pick" x="136" y="101">deep-low</text>
+          <text class="r-note" x="302" y="101" text-anchor="end">default</text>
+          <rect class="r-tile" x="124.5" y="120.5" width="188" height="31" />
+          <text class="r-lbl" x="136" y="141">writing</text>
+          <rect class="r-tile" x="124.5" y="160.5" width="188" height="31" />
+          <text class="r-lbl" x="136" y="181">librarian</text>
 
-            <rect class="d-fill-tint" x="0" y="30" width="16" height="16" />
-            <rect class="d-fill-tint" x="22" y="30" width="16" height="16" />
-            <rect class="d-fill-tint" x="44" y="30" width="16" height="16" />
-            <rect class="d-fill-tint" x="66" y="30" width="16" height="16" />
-            <rect class="d-fill-tint" x="88" y="30" width="16" height="16" />
-            <rect class="d-fill-tint" x="110" y="30" width="16" height="16" />
-            <rect class="d-fill-tint" x="132" y="30" width="16" height="16" />
-            <rect class="d-fill-tint" x="154" y="30" width="16" height="16" />
-            <text class="d-mono" x="196" y="44">8 skills → /skill:</text>
-
-            <rect class="d-fill-mute" x="0" y="60" width="16" height="16" />
-            <rect class="d-fill-mute" x="22" y="60" width="16" height="16" />
-            <text class="d-mono" x="196" y="74">2 MCP → context7, grep_app</text>
-          </g>
+          <!-- escalation: deep-low -> deep-high -> you -->
+          <text class="r-esc" x="344" y="68">ESCALATE</text>
+          <path class="d-accent" d="M312,96 H342" marker-end="url(#head-accent)" />
+          <rect class="r-tile" x="344.5" y="80.5" width="139" height="31" />
+          <text class="r-lbl" x="356" y="101">deep-high</text>
+          <path class="d-accent" d="M414,112 V158" marker-end="url(#head-accent)" />
+          <rect class="r-src" x="344" y="160" width="140" height="32" />
+          <text class="r-src-lbl" x="356" y="181">you</text>
         </svg>
       </div>
     </div>
 
     <div class="rule bottom"></div>
     <div class="grid foot">
-      <div class="status">Adapted from oh-my-openagent</div>
+      <div class="status">Plus 8 skills and 2 docs MCP servers</div>
       <div class="legend">
-        <span class="accent">Agents</span>
-        <span class="tint">Skills</span>
-        <span class="mute">MCP</span>
+        <span class="accent">Escalation</span>
       </div>
     </div>
   </body>

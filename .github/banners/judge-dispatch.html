@@ -4,14 +4,116 @@
     <meta charset="utf-8" />
     <title>judge-dispatch</title>
     <link rel="stylesheet" href="banner.css" />
+    <style>
+      /* figure: one judged batch, each decision charted against minimumConfidence */
+      .docket {
+        --bar: 176px;
+        --val: 44px;
+        --gap: 12px;
+        position: relative;
+        display: grid;
+        grid-template-columns: 28px 1fr var(--bar) var(--val);
+        column-gap: var(--gap);
+        width: 484px;
+      }
+      .docket .hd {
+        height: 34px;
+        font: 500 15px / 1 var(--mono);
+        letter-spacing: 0.02em;
+        color: var(--ink-3);
+        text-transform: uppercase;
+      }
+      .docket .hd.axis {
+        position: relative;
+      }
+      .docket .hd.axis span {
+        position: absolute;
+        top: 0;
+      }
+      .docket .hd.axis .lo {
+        left: 0;
+      }
+      .docket .hd.axis .min {
+        left: calc(var(--bar) * 0.7);
+        transform: translateX(-50%);
+        color: var(--accent);
+      }
+      .docket .hd.axis .hi {
+        right: 0;
+      }
+      .docket .hd.num {
+        text-align: right;
+      }
+      .docket .cell {
+        height: 42px;
+        border-top: 1px solid var(--ink);
+      }
+      .docket .id {
+        padding-top: 13px;
+        font: 700 15px / 1 var(--mono);
+        color: var(--accent);
+      }
+      .docket .id.kept {
+        color: var(--ink-3);
+      }
+      .docket .what {
+        padding-top: 11px;
+        font: 600 17px / 20px var(--display);
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+      }
+      .docket .what.kept {
+        color: var(--ink-2);
+      }
+      .docket .track {
+        position: relative;
+      }
+      .docket .track::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 20px;
+        border-top: 1px solid var(--ink-3);
+      }
+      .docket .bar {
+        position: absolute;
+        left: 0;
+        top: 14px;
+        height: 13px;
+        width: calc(var(--bar) * var(--c));
+        background: var(--accent);
+      }
+      .docket .bar.kept {
+        background: var(--paper);
+        border: 1px solid var(--ink);
+      }
+      .docket .val {
+        padding-top: 14px;
+        font: 600 15px / 1 var(--mono);
+        letter-spacing: 0.02em;
+        text-align: right;
+        color: var(--ink);
+      }
+      .docket .val.kept {
+        color: var(--ink-3);
+      }
+      /* minimumConfidence threshold, drawn through every row */
+      .docket .thresh {
+        position: absolute;
+        top: 26px;
+        bottom: 0;
+        left: calc(484px - var(--val) - var(--gap) - var(--bar) + var(--bar) * 0.7 - 1px);
+        border-left: 2px solid var(--accent);
+      }
+    </style>
     <script>
       document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
     </script>
   </head>
   <body>
     <div class="grid meta">
-      <div class="idx"><b>03</b> / 08</div>
-      <div>wows-omp-plugins</div>
+      <div class="series">wows-omp-plugins</div>
       <div>task</div>
     </div>
     <div class="rule top"></div>
@@ -22,68 +124,43 @@
         <div class="tag">A judge model routes every subagent: it picks the agent and rates how hard the task is.</div>
       </div>
       <div class="fig">
-        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Task call judged for agent and difficulty, mapped by configuration to the spawn">
-          <defs>
-            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
-            </marker>
-            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
-            </marker>
-          </defs>
+        <div class="docket" role="img" aria-label="One judged task batch: each decision's confidence charted against minimumConfidence 0.70; the low-confidence item stays as requested">
+          <div class="hd">#</div>
+          <div class="hd">Judged</div>
+          <div class="hd axis"><span class="lo">0</span><span class="min">0.70</span><span class="hi">1</span></div>
+          <div class="hd num">conf</div>
 
-          <!-- one spawn: task -> judge -> config -> spawn -->
-          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="10" y="20">01</text>
-          <text class="d-lbl" x="10" y="40">Task</text>
-          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="136" y="20">02</text>
-          <text class="d-lbl" x="136" y="40">Judge</text>
-          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="262" y="20">03</text>
-          <text class="d-lbl" x="262" y="40">Config</text>
-          <rect class="d-end" x="378" y="0" width="106" height="49" />
-          <text class="d-num" x="388" y="20">04</text>
-          <text class="d-end-lbl" x="388" y="40">Spawn</text>
-          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
-          <line class="d-link" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head)" />
-          <line class="d-link" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head)" />
+          <div class="cell id">1</div>
+          <div class="cell what">explore → task</div>
+          <div class="cell track"><div class="bar" style="--c: 0.87"></div></div>
+          <div class="cell val">0.87</div>
 
-          <!-- the judge rates difficulty for every item -->
-          <path class="d-accent" d="M179,49 V86 M53,104 V86 H431 V104" />
-          <rect class="d-mask" x="149" y="58" width="60" height="20" />
-          <text class="d-mono accent" x="179" y="73" text-anchor="middle">rates</text>
-          <!-- difficulty scale and what each rating changes -->
-          <g transform="translate(0,112)">
-            <rect class="d-fill-mute" x="0" y="0" width="106" height="12" />
-            <rect class="d-fill-tint" x="126" y="0" width="106" height="12" />
-            <rect class="d-fill-accent" x="252" y="0" width="106" height="12" />
-            <text class="d-lbl" x="0" y="40">routine</text>
-            <text class="d-lbl" x="126" y="40">standard</text>
-            <text class="d-lbl accent" x="252" y="40">demanding</text>
-            <text class="d-mono" x="0" y="62">thinking −1</text>
-            <text class="d-mono" x="126" y="62">unchanged</text>
-            <text class="d-mono" x="252" y="62">thinking +1</text>
-            <text class="d-mono" x="0" y="82">or tier</text>
-            <text class="d-mono" x="252" y="82">or tier</text>
+          <div class="cell id">2</div>
+          <div class="cell what">thinking medium → high</div>
+          <div class="cell track"><div class="bar" style="--c: 0.92"></div></div>
+          <div class="cell val">0.92</div>
 
-            <rect class="d-box" x="378.5" y="0.5" width="105" height="11" />
-            <text class="d-mono accent" x="378" y="40">&lt; 0.70</text>
-            <text class="d-mono" x="378" y="62">kept as</text>
-            <text class="d-mono" x="378" y="82">requested</text>
-          </g>
-        </svg>
+          <div class="cell id">3</div>
+          <div class="cell what">model → @slow</div>
+          <div class="cell track"><div class="bar" style="--c: 0.88"></div></div>
+          <div class="cell val">0.88</div>
+
+          <div class="cell id kept">4</div>
+          <div class="cell what kept">explore kept</div>
+          <div class="cell track"><div class="bar kept" style="--c: 0.58"></div></div>
+          <div class="cell val kept">0.58</div>
+
+          <div class="thresh"></div>
+        </div>
       </div>
     </div>
 
     <div class="rule bottom"></div>
     <div class="grid foot">
-      <div class="status">#2 task kept (0.93) · thinking medium → high (0.92)</div>
+      <div class="status">#1 explore → task (0.87) · #4 explore kept: no confident choice</div>
       <div class="legend">
-        <span class="mute">routine</span>
-        <span class="tint">standard</span>
-        <span class="accent">demanding</span>
-        <span class="outline">kept</span>
+        <span class="accent">acted on</span>
+        <span class="outline">kept as requested</span>
       </div>
     </div>
   </body>

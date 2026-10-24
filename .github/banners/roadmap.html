@@ -4,14 +4,72 @@
     <meta charset="utf-8" />
     <title>roadmap</title>
     <link rel="stylesheet" href="banner.css" />
+    <style>
+      .fig {
+        padding-top: 22px;
+      }
+      .g-axis {
+        stroke: var(--ink-3);
+        stroke-width: 1;
+      }
+      .g-month {
+        font: 500 15px var(--mono);
+        letter-spacing: 0.04em;
+        fill: var(--ink-3);
+      }
+      .g-lane {
+        font: 700 17px var(--display);
+        letter-spacing: -0.01em;
+        fill: var(--ink);
+      }
+      .g-state {
+        font: 500 15px var(--mono);
+        fill: var(--ink-2);
+      }
+      .g-state.accent {
+        fill: var(--accent);
+      }
+      .g-id {
+        font: 600 15px var(--mono);
+        fill: var(--ink);
+      }
+      .g-id.on {
+        fill: var(--paper);
+      }
+      .g-plan {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 1;
+      }
+      .g-rest {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 1.5;
+      }
+      .g-target {
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+      .g-now {
+        stroke: var(--accent);
+        stroke-width: 1.5;
+        stroke-dasharray: 3 3;
+      }
+      .g-adr {
+        fill: var(--ink);
+      }
+      .legend .target::before {
+        width: 2px;
+        height: 14px;
+      }
+    </style>
     <script>
       document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
     </script>
   </head>
   <body>
     <div class="grid meta">
-      <div class="idx"><b>08</b> / 08</div>
-      <div>wows-omp-plugins</div>
+      <div class="series">wows-omp-plugins</div>
       <div>/roadmap</div>
     </div>
     <div class="rule top"></div>
@@ -22,75 +80,75 @@
         <div class="tag">The planning layer above your plans and tasks: rounds, stages and decisions kept in your repo.</div>
       </div>
       <div class="fig">
-        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Stage lifecycle from planned to closed on evidence, and rounds of stages kept in docs/roadmap">
-          <defs>
-            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
-            </marker>
-            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
-            </marker>
-          </defs>
+        <svg width="484" height="210" viewBox="0 0 484 210" role="img" aria-label="Roadmap timeline: round R1 closed, round R2 active with its stages and a target date, round R3 planned, and ADRs that outlive rounds">
+          <!-- time axis -->
+          <text class="g-month" x="80" y="12">JUL</text>
+          <text class="g-month" x="147" y="12">AUG</text>
+          <text class="g-month" x="215" y="12">SEP</text>
+          <text class="g-month" x="282" y="12">OCT</text>
+          <text class="g-month" x="349" y="12">NOV</text>
+          <text class="g-month" x="417" y="12">DEC</text>
+          <line class="g-axis" x1="0" y1="22.5" x2="484" y2="22.5" />
+          <line class="g-axis" x1="80.5" y1="18" x2="80.5" y2="27" />
+          <line class="g-axis" x1="147.5" y1="18" x2="147.5" y2="27" />
+          <line class="g-axis" x1="215.5" y1="18" x2="215.5" y2="27" />
+          <line class="g-axis" x1="282.5" y1="18" x2="282.5" y2="27" />
+          <line class="g-axis" x1="349.5" y1="18" x2="349.5" y2="27" />
+          <line class="g-axis" x1="417.5" y1="18" x2="417.5" y2="27" />
 
-          <!-- stage lifecycle: planned -> active -> evidence -> closed -->
-          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="10" y="20">01</text>
-          <text class="d-lbl" x="10" y="40">Planned</text>
-          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="136" y="20">02</text>
-          <text class="d-lbl" x="136" y="40">Active</text>
-          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="262" y="20">03</text>
-          <text class="d-lbl" x="262" y="40">Evidence</text>
-          <rect class="d-end" x="378" y="0" width="106" height="49" />
-          <text class="d-num" x="388" y="20">04</text>
-          <text class="d-end-lbl" x="388" y="40">Closed</text>
-          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
-          <line class="d-link" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head)" />
-          <line class="d-link" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head)" />
+          <!-- today -->
+          <line class="g-now" x1="318" y1="27" x2="318" y2="190" />
+          <text class="g-state accent" x="318" y="207" text-anchor="middle">today</text>
 
-          <!-- close gate: every done criterion needs passing evidence -->
-          <path class="d-accent" d="M253,56 V64 H483 V56" />
-          <text class="d-mono accent" x="368" y="84" text-anchor="middle">every DC: pass</text>
+          <!-- R1: closed -->
+          <text class="g-lane" x="0" y="47">R1</text>
+          <text class="g-state" x="0" y="63">closed</text>
+          <rect class="d-fill-mute" x="80" y="34" width="42" height="30" />
+          <text class="g-id" x="101" y="54" text-anchor="middle">S01</text>
+          <rect class="d-fill-mute" x="126" y="34" width="42" height="30" />
+          <text class="g-id" x="147" y="54" text-anchor="middle">S02</text>
+          <rect class="d-fill-mute" x="172" y="34" width="42" height="30" />
+          <text class="g-id" x="193" y="54" text-anchor="middle">S03</text>
 
-          <!-- rounds of stages: R1 closed, R2 active, R3 planned -->
-          <g transform="translate(0,104)">
-            <text class="d-mono" x="0" y="14">R1</text>
-            <rect class="d-fill-mute" x="40" y="0" width="36" height="18" />
-            <rect class="d-fill-mute" x="84" y="0" width="36" height="18" />
-            <rect class="d-fill-mute" x="128" y="0" width="36" height="18" />
-            <rect class="d-fill-mute" x="172" y="0" width="36" height="18" />
-            <text class="d-mono" x="226" y="14">closed</text>
+          <!-- R2: active; S05 runs toward its target, S06 waits on it -->
+          <text class="g-lane" x="0" y="91">R2</text>
+          <text class="g-state accent" x="0" y="107">active</text>
+          <rect class="d-fill-mute" x="218" y="78" width="42" height="30" />
+          <text class="g-id" x="239" y="98" text-anchor="middle">S04</text>
+          <rect class="d-fill-accent" x="264" y="78" width="54" height="30" />
+          <text class="g-id on" x="291" y="98" text-anchor="middle">S05</text>
+          <rect class="g-rest" x="318" y="78.75" width="22" height="28.5" />
+          <line class="g-target" x1="341" y1="72" x2="341" y2="114" />
+          <rect class="g-plan" x="346.5" y="78.5" width="41" height="29" />
+          <text class="g-id" x="367" y="98" text-anchor="middle">S06</text>
 
-            <text class="d-mono" x="0" y="44">R2</text>
-            <rect class="d-fill-mute" x="40" y="30" width="36" height="18" />
-            <rect class="d-fill-mute" x="84" y="30" width="36" height="18" />
-            <rect class="d-fill-accent" x="128" y="30" width="36" height="18" />
-            <rect class="d-box" x="172.5" y="30.5" width="35" height="17" />
-            <text class="d-mono accent" x="226" y="44">active</text>
+          <!-- R3: planned -->
+          <text class="g-lane" x="0" y="135">R3</text>
+          <text class="g-state" x="0" y="151">planned</text>
+          <rect class="g-plan" x="392.5" y="122.5" width="41" height="29" />
+          <text class="g-id" x="413" y="142" text-anchor="middle">S07</text>
+          <rect class="g-plan" x="438.5" y="122.5" width="45" height="29" />
+          <text class="g-id" x="461" y="142" text-anchor="middle">S08</text>
 
-            <text class="d-mono" x="0" y="74">R3</text>
-            <rect class="d-box" x="40.5" y="60.5" width="35" height="17" />
-            <rect class="d-box" x="84.5" y="60.5" width="35" height="17" />
-            <rect class="d-box" x="128.5" y="60.5" width="35" height="17" />
-            <text class="d-mono" x="226" y="74">planned</text>
-
-            <path class="d-accent" d="M308,0 H316 V78 H308 M316,39 H330" />
-            <text class="d-lbl accent" x="340" y="34">docs/roadmap/</text>
-            <text class="d-mono" x="340" y="58">Markdown, kept</text>
-            <text class="d-mono" x="340" y="78">across sessions</text>
-          </g>
+          <!-- ADRs: decisions that outlive rounds -->
+          <text class="g-lane" x="0" y="182">ADR</text>
+          <line class="g-axis" x1="80" y1="176.5" x2="484" y2="176.5" />
+          <path class="g-adr" d="M96,170 l6,6 l-6,6 l-6,-6 z" />
+          <path class="g-adr" d="M150,170 l6,6 l-6,6 l-6,-6 z" />
+          <path class="g-adr" d="M232,170 l6,6 l-6,6 l-6,-6 z" />
+          <path class="g-adr" d="M290,170 l6,6 l-6,6 l-6,-6 z" />
         </svg>
       </div>
     </div>
 
     <div class="rule bottom"></div>
     <div class="grid foot">
-      <div class="status">Round R2 active · stage bound</div>
+      <div class="status">Round R2 active · S05 bound</div>
       <div class="legend">
         <span class="accent">Active</span>
         <span class="mute">Closed</span>
         <span class="outline">Planned</span>
+        <span class="accent target">Target</span>
       </div>
     </div>
   </body>

@@ -7,11 +7,29 @@
     <script>
       document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
     </script>
+    <style>
+      .p-tab { font: 700 15px var(--mono); letter-spacing: 0.02em; fill: var(--ink); }
+      .p-off { font: 500 15px var(--mono); letter-spacing: 0.02em; fill: var(--ink-3); }
+      .p-rule { stroke: var(--ink); stroke-width: 1; }
+      .p-edge { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+      .p-crit { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+      .p-node { font: 600 17px var(--display); letter-spacing: -0.01em; fill: var(--ink); }
+      .p-node.done { fill: var(--ink-2); }
+      .p-node.sel { fill: var(--paper); }
+      .p-sel { fill: var(--ink); }
+      .i-line { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+      .i-line.done { stroke: var(--ink-2); stroke-width: 2; }
+      .i-line.sel { stroke: var(--paper); }
+      .i-fill { fill: var(--ink); }
+      .i-fill.sel { fill: var(--paper); }
+      .p-key { font: 700 15px var(--mono); fill: var(--accent); }
+      .legend.icons span::before { display: none; }
+      .legend.icons svg { display: block; overflow: visible; }
+    </style>
   </head>
   <body>
     <div class="grid meta">
-      <div class="idx"><b>07</b> / 08</div>
-      <div>wows-omp-plugins</div>
+      <div class="series">wows-omp-plugins</div>
       <div>/dag-pane</div>
     </div>
     <div class="rule top"></div>
@@ -22,64 +40,53 @@
         <div class="tag">A live, read-only graph of what OMP is working on, in a Herdr side pane.</div>
       </div>
       <div class="fig">
-        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Todos, plan execution and Atlas plans feed a read-only Herdr pane that draws the dependency graph and its critical path">
+        <svg width="484" height="192" viewBox="0 0 484 192" role="img" aria-label="The Herdr side pane in its DAG view: a layered todo graph with done, running and pending nodes, the critical path highlighted and the selected node's direct dependencies listed in the footer">
           <defs>
-            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
-            </marker>
-            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
-            </marker>
+            <!-- state icons, centred on 0,0 -->
+            <path id="ic-done" class="i-line done" d="M-5,0.5 L-1.5,4 L5.5,-4" />
+            <g id="ic-pend"><circle class="i-line" r="6" /></g>
+            <g id="ic-run"><circle class="i-line" r="6" /><path class="i-fill" d="M0,-6 A6,6 0 0 1 0,6 z" /></g>
           </defs>
 
-          <!-- sources: native todos, plan execution, Atlas plans -> Herdr pane -->
-          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="10" y="20">01</text>
-          <text class="d-lbl" x="10" y="40">Todos</text>
-          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="136" y="20">02</text>
-          <text class="d-lbl" x="136" y="40">Plan</text>
-          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="262" y="20">03</text>
-          <text class="d-lbl" x="262" y="40">Atlas</text>
-          <rect class="d-end" x="378" y="0" width="106" height="49" />
-          <text class="d-num" x="388" y="20">04</text>
-          <text class="d-end-lbl" x="388" y="40">Herdr</text>
+          <!-- pane header: view tabs and arrow-key mode -->
+          <text class="p-tab" x="0" y="15">DAG</text>
+          <line class="p-crit" x1="0" y1="25" x2="28" y2="25" />
+          <text class="p-off" x="52" y="15">Tasks</text>
+          <text class="p-off" x="484" y="15" text-anchor="end">NODES</text>
+          <line class="p-rule" x1="0" y1="34.5" x2="484" y2="34.5" />
 
-          <!-- read-only feed into the pane -->
-          <path class="d-link" d="M53,49 V72 H431 V51" marker-end="url(#head)" />
-          <line class="d-link" x1="179" y1="49" x2="179" y2="72" />
-          <line class="d-link" x1="305" y1="49" x2="305" y2="72" />
-          <rect class="d-mask" x="64" y="62" width="104" height="20" />
-          <text class="d-mono" x="116" y="77" text-anchor="middle">read-only</text>
+          <!-- edges: ordinary dependencies -->
+          <path class="p-edge" d="M92,132 H120" />
+          <path class="p-edge" d="M210,132 H228 V104 H246" />
+          <path class="p-edge" d="M344,98 H358 V132 H372" />
+          <!-- edges: critical path -->
+          <path class="p-crit" d="M92,64 H120 M210,64 H228 V92 H246 M344,92 H358 V64 H372" />
 
-          <!-- the graph in the pane: layered nodes, critical path in accent -->
-          <g transform="translate(0,112)">
-            <!-- edges -->
-            <path class="d-link" d="M36,48 H64" />
-            <path class="d-link" d="M100,48 H112 V32 H128" />
-            <path class="d-link" d="M164,28 H176 V48 H192" />
-            <path class="d-link" d="M228,48 H240 V32 H256" />
-            <path class="d-accent" d="M36,8 H64 M100,8 H112 V24 H128 M164,28 H176 V8 H192 M228,8 H240 V24 H256" />
+          <!-- layer 1: done -->
+          <use href="#ic-done" x="7" y="64" />
+          <text class="p-node done" x="22" y="70">Schema</text>
+          <use href="#ic-done" x="7" y="132" />
+          <text class="p-node done" x="22" y="138">Config</text>
+          <!-- layer 2 -->
+          <use href="#ic-done" x="133" y="64" />
+          <text class="p-node done" x="148" y="70">Parser</text>
+          <use href="#ic-run" x="133" y="132" />
+          <text class="p-node" x="148" y="138">Client</text>
+          <!-- layer 3: selected running node -->
+          <rect class="p-sel" x="246" y="83" width="98" height="30" />
+          <circle class="i-line sel" cx="259" cy="98" r="6" />
+          <path class="i-fill sel" d="M259,92 A6,6 0 0 1 259,104 z" />
+          <text class="p-node sel" x="274" y="104">API</text>
+          <!-- layer 4: pending -->
+          <use href="#ic-pend" x="385" y="64" />
+          <text class="p-node" x="400" y="70">Tests</text>
+          <use href="#ic-pend" x="385" y="132" />
+          <text class="p-node" x="400" y="138">Docs</text>
 
-            <!-- layers 1-2: done -->
-            <rect class="d-fill-mute" x="0" y="0" width="36" height="16" />
-            <rect class="d-fill-mute" x="0" y="40" width="36" height="16" />
-            <rect class="d-fill-mute" x="64" y="0" width="36" height="16" />
-            <rect class="d-fill-mute" x="64" y="40" width="36" height="16" />
-            <!-- layer 3: done -->
-            <rect class="d-fill-mute" x="128" y="20" width="36" height="16" />
-            <!-- layer 4: running -->
-            <rect class="d-fill-tint" x="192" y="0" width="36" height="16" />
-            <rect class="d-fill-tint" x="192" y="40" width="36" height="16" />
-            <!-- layer 5: pending -->
-            <rect class="d-box" x="256.5" y="20.5" width="35" height="15" />
-
-            <path class="d-accent" d="M292,28 H316" />
-            <text class="d-lbl accent" x="326" y="34">Critical path</text>
-            <text class="d-mono" x="326" y="58">longest chain</text>
-            <text class="d-mono" x="326" y="78">by elapsed time</text>
-          </g>
+          <!-- pane footer: selected node's direct dependencies, critical-path key -->
+          <line class="p-rule" x1="0" y1="162.5" x2="484" y2="162.5" />
+          <text class="d-mono" x="0" y="187"><tspan class="p-tab">API</tspan>  after Parser, Client</text>
+          <text class="d-mono accent" x="484" y="187" text-anchor="end"><tspan class="p-key">p</tspan>  critical path</text>
         </svg>
       </div>
     </div>
@@ -87,11 +94,11 @@
     <div class="rule bottom"></div>
     <div class="grid foot">
       <div class="status">displayTiming · plan-execution</div>
-      <div class="legend">
-        <span class="mute">Done</span>
-        <span class="tint">Running</span>
-        <span class="outline">Pending</span>
-        <span class="accent">Critical path</span>
+      <div class="legend icons">
+        <span><svg aria-hidden="true" width="14" height="14" viewBox="-7 -7 14 14"><use href="#ic-done" /></svg>Done</span>
+        <span><svg aria-hidden="true" width="14" height="14" viewBox="-7 -7 14 14"><use href="#ic-run" /></svg>Running</span>
+        <span><svg aria-hidden="true" width="14" height="14" viewBox="-7 -7 14 14"><use href="#ic-pend" /></svg>Pending</span>
+        <span><svg aria-hidden="true" width="18" height="14" viewBox="0 0 18 14"><line class="p-crit" x1="0" y1="7" x2="18" y2="7" /></svg>Critical path</span>
       </div>
     </div>
   </body>

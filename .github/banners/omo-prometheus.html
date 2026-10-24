@@ -12,12 +12,132 @@
       .title {
         font-size: 76px;
       }
+
+      /* figure: Prometheus | approved plan | Atlas */
+      .fig {
+        padding-top: 18px;
+      }
+      .duo {
+        display: grid;
+        grid-template-columns: 1fr 120px 1fr;
+        column-gap: 28px;
+        height: 200px;
+      }
+      .role {
+        display: flex;
+        flex-direction: column;
+        padding-top: 4px;
+      }
+      .role.atlas {
+        text-align: right;
+        align-items: flex-end;
+      }
+      .role .cmd-tag {
+        font: 700 15px / 1 var(--mono);
+        color: var(--accent);
+      }
+      .role .name {
+        margin-top: 12px;
+        font: 800 30px / 1 var(--display);
+        letter-spacing: -0.035em;
+        white-space: nowrap;
+      }
+      .role .job {
+        margin-top: 6px;
+        font: 500 15px / 1 var(--mono);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+      }
+      .role ul {
+        margin-top: auto;
+        list-style: none;
+        font: 500 16px / 1 var(--display);
+        letter-spacing: -0.005em;
+      }
+      .role li {
+        padding: 8px 0 7px;
+        border-top: 1px solid var(--ink);
+        white-space: nowrap;
+      }
+
+      /* the hand-off artifact */
+      .plan {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--ink);
+        background: var(--paper);
+      }
+      .plan .hd {
+        padding: 10px 10px 8px;
+        border-bottom: 1px solid var(--ink);
+        font: 700 15px / 1 var(--mono);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+      .plan .rows {
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        padding: 12px 10px 0;
+      }
+      .plan .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font: 700 15px / 1 var(--mono);
+        color: var(--accent);
+      }
+      .plan .row::before {
+        content: "";
+        flex: none;
+        width: 10px;
+        height: 10px;
+        box-sizing: border-box;
+        border: 1px solid var(--ink);
+      }
+      .plan .row i {
+        flex: 1;
+        height: 4px;
+        background: var(--ink-3);
+      }
+      .plan .stamp {
+        margin-top: auto;
+        padding: 9px 10px 8px;
+        background: var(--accent);
+        color: var(--paper);
+        font: 700 15px / 1 var(--mono);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      /* arrows through the gutters, level with the role labels */
+      .arrow {
+        position: absolute;
+        top: 66px;
+        width: 28px;
+        height: 10px;
+        overflow: visible;
+      }
+      .arrow line {
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+      .arrow path {
+        fill: var(--accent);
+      }
+      .arrow.in {
+        left: -28px;
+      }
+      .arrow.out {
+        right: -28px;
+      }
     </style>
   </head>
   <body>
     <div class="grid meta">
-      <div class="idx"><b>04</b> / 08</div>
-      <div>wows-omp-plugins</div>
+      <div class="series">wows-omp-plugins</div>
       <div>/prometheus</div>
     </div>
     <div class="rule top"></div>
@@ -27,79 +147,50 @@
         <div class="title">omo-prometheus<span class="acc">.</span></div>
         <div class="tag">Prometheus interviews you into a plan; Atlas delegates every task and runs four verification gates.</div>
       </div>
-      <div class="fig">
-        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Metis, Prometheus and approval hand off to Atlas, which delegates tasks with evidence and runs four final gates">
-          <defs>
-            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
-            </marker>
-            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
-            </marker>
-          </defs>
+      <div class="fig" role="img" aria-label="Prometheus plans, the approved plan hands off to Atlas, which executes it">
+        <div class="duo">
+          <div class="role">
+            <div class="cmd-tag">/prometheus</div>
+            <div class="name">Prometheus</div>
+            <div class="job">Plans</div>
+            <ul>
+              <li>Interviews you</li>
+              <li>Consults Metis</li>
+              <li>Momus reviews</li>
+            </ul>
+          </div>
 
-          <!-- planning: metis -> prometheus -> approve -> atlas -->
-          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="10" y="20">01</text>
-          <text class="d-lbl" x="10" y="40">Metis</text>
-          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="136" y="20">02</text>
-          <text class="d-lbl" x="136" y="40">Prometheus</text>
-          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
-          <text class="d-num" x="262" y="20">03</text>
-          <text class="d-lbl" x="262" y="40">Approve</text>
-          <rect class="d-end" x="378" y="0" width="106" height="49" />
-          <text class="d-num" x="388" y="20">04</text>
-          <text class="d-end-lbl" x="388" y="40">Atlas</text>
-          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
-          <line class="d-link" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head)" />
-          <line class="d-link" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head)" />
+          <div class="plan">
+            <svg class="arrow in" aria-hidden="true" viewBox="0 0 28 10"><line x1="2" y1="5" x2="20" y2="5" /><path d="M18,0 L28,5 L18,10 z" /></svg>
+            <div class="hd">Plan</div>
+            <div class="rows">
+              <div class="row">T1<i></i></div>
+              <div class="row">T2<i></i></div>
+              <div class="row">T3<i></i></div>
+              <div class="row">F1<i></i></div>
+            </div>
+            <div class="stamp">Approved</div>
+            <svg class="arrow out" aria-hidden="true" viewBox="0 0 28 10"><line x1="0" y1="5" x2="20" y2="5" /><path d="M18,0 L28,5 L18,10 z" /></svg>
+          </div>
 
-          <!-- atlas hands every task to a child agent -->
-          <path class="d-accent" d="M431,49 V72 H16 V102" marker-end="url(#head-accent)" />
-          <rect class="d-mask" x="144" y="62" width="220" height="20" />
-          <text class="d-mono accent" x="254" y="77" text-anchor="middle">delegate to subagents</text>
-
-          <!-- ledger rows, then the four final gates, then done -->
-          <g transform="translate(0,104)">
-            <rect class="d-fill-accent" x="0" y="0" width="32" height="32" />
-            <rect class="d-fill-accent" x="40" y="0" width="32" height="32" />
-            <rect class="d-fill-tint" x="80" y="0" width="32" height="32" />
-            <rect class="d-fill-mute" x="120" y="0" width="32" height="32" />
-            <line class="d-link" x1="158" y1="16" x2="182" y2="16" marker-end="url(#head)" />
-            <rect class="d-box" x="190.5" y="0.5" width="31" height="31" />
-            <rect class="d-box" x="230.5" y="0.5" width="31" height="31" />
-            <rect class="d-box" x="270.5" y="0.5" width="31" height="31" />
-            <rect class="d-box" x="310.5" y="0.5" width="31" height="31" />
-            <line class="d-link" x1="348" y1="16" x2="377" y2="16" marker-end="url(#head)" />
-            <rect class="d-end" x="378" y="0" width="106" height="32" />
-            <text class="d-end-lbl" x="388" y="22">Done</text>
-
-            <text class="d-mono" x="16" y="54" text-anchor="middle">T1</text>
-            <text class="d-mono" x="56" y="54" text-anchor="middle">T2</text>
-            <text class="d-mono" x="96" y="54" text-anchor="middle">T3</text>
-            <text class="d-mono" x="136" y="54" text-anchor="middle">T4</text>
-            <text class="d-mono" x="206" y="54" text-anchor="middle">F1</text>
-            <text class="d-mono" x="246" y="54" text-anchor="middle">F2</text>
-            <text class="d-mono" x="286" y="54" text-anchor="middle">F3</text>
-            <text class="d-mono" x="326" y="54" text-anchor="middle">F4</text>
-            <text class="d-mono accent" x="76" y="80" text-anchor="middle">ledger + proof</text>
-            <text class="d-mono accent" x="266" y="80" text-anchor="middle">final gates</text>
-            <text class="d-mono" x="388" y="54">PASS only</text>
-          </g>
-        </svg>
+          <div class="role atlas">
+            <div class="cmd-tag">/atlas</div>
+            <div class="name">Atlas</div>
+            <div class="job">Executes</div>
+            <ul>
+              <li>Delegates every task</li>
+              <li>Records evidence</li>
+              <li>Gates F1–F4</li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="rule bottom"></div>
     <div class="grid foot">
-      <div class="status">Atlas · T3 running · F1–F4 pending</div>
-      <div class="legend">
-        <span class="accent">Verified</span>
-        <span class="tint">Running</span>
-        <span class="mute">Blocked</span>
-        <span class="outline">Pending</span>
-      </div>
+      <div class="status">You approve the plan; Atlas takes it from there</div>
+      <div>Plan Mode · task subagents</div>
     </div>
   </body>
 </html>
