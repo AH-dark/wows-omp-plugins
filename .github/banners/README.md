@@ -22,3 +22,9 @@ renders only the named ones. Commit the PNGs with the HTML.
 4. Draw the diagram inside `.fig` as an inline SVG (`viewBox="0 0 484 196"`)
    using the `d-*` primitive classes, so both themes apply automatically.
 5. Run `bun run banners <plugin>` and check both PNGs.
+6. Put the banner above the title of `plugins/<plugin>/README.md` and
+   `README.zh.md` with the same `<picture>` block the other plugin READMEs
+   use. Plugin READMEs link the PNGs by absolute `raw.githubusercontent.com`
+   URL because `.github/` does not ship with the installed plugin.
+7. A new plugin also needs a banner accent in `banner.css` and the `/ 08`
+   totals and root index updated.

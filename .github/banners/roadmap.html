@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en" data-banner="roadmap" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>roadmap</title>
+    <link rel="stylesheet" href="banner.css" />
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+    </script>
+  </head>
+  <body>
+    <div class="grid meta">
+      <div class="idx"><b>08</b> / 08</div>
+      <div>wows-omp-plugins</div>
+      <div>/roadmap</div>
+    </div>
+    <div class="rule top"></div>
+
+    <div class="grid body">
+      <div class="lead">
+        <div class="title">roadmap<span class="acc">.</span></div>
+        <div class="tag">The planning layer above your plans and tasks: rounds, stages and decisions kept in your repo.</div>
+      </div>
+      <div class="fig">
+        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Stage lifecycle from planned to closed on evidence, and rounds of stages kept in docs/roadmap">
+          <defs>
+            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <!-- stage lifecycle: planned -> active -> evidence -> closed -->
+          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="10" y="20">01</text>
+          <text class="d-lbl" x="10" y="40">Planned</text>
+          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="136" y="20">02</text>
+          <text class="d-lbl" x="136" y="40">Active</text>
+          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="262" y="20">03</text>
+          <text class="d-lbl" x="262" y="40">Evidence</text>
+          <rect class="d-end" x="378" y="0" width="106" height="49" />
+          <text class="d-num" x="388" y="20">04</text>
+          <text class="d-end-lbl" x="388" y="40">Closed</text>
+          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head)" />
+
+          <!-- close gate: every done criterion needs passing evidence -->
+          <path class="d-accent" d="M253,56 V64 H483 V56" />
+          <text class="d-mono accent" x="368" y="84" text-anchor="middle">every DC: pass</text>
+
+          <!-- rounds of stages: R1 closed, R2 active, R3 planned -->
+          <g transform="translate(0,104)">
+            <text class="d-mono" x="0" y="14">R1</text>
+            <rect class="d-fill-mute" x="40" y="0" width="36" height="18" />
+            <rect class="d-fill-mute" x="84" y="0" width="36" height="18" />
+            <rect class="d-fill-mute" x="128" y="0" width="36" height="18" />
+            <rect class="d-fill-mute" x="172" y="0" width="36" height="18" />
+            <text class="d-mono" x="226" y="14">closed</text>
+
+            <text class="d-mono" x="0" y="44">R2</text>
+            <rect class="d-fill-mute" x="40" y="30" width="36" height="18" />
+            <rect class="d-fill-mute" x="84" y="30" width="36" height="18" />
+            <rect class="d-fill-accent" x="128" y="30" width="36" height="18" />
+            <rect class="d-box" x="172.5" y="30.5" width="35" height="17" />
+            <text class="d-mono accent" x="226" y="44">active</text>
+
+            <text class="d-mono" x="0" y="74">R3</text>
+            <rect class="d-box" x="40.5" y="60.5" width="35" height="17" />
+            <rect class="d-box" x="84.5" y="60.5" width="35" height="17" />
+            <rect class="d-box" x="128.5" y="60.5" width="35" height="17" />
+            <text class="d-mono" x="226" y="74">planned</text>
+
+            <path class="d-accent" d="M308,0 H316 V78 H308 M316,39 H330" />
+            <text class="d-lbl accent" x="340" y="34">docs/roadmap/</text>
+            <text class="d-mono" x="340" y="58">Markdown, kept</text>
+            <text class="d-mono" x="340" y="78">across sessions</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="rule bottom"></div>
+    <div class="grid foot">
+      <div class="status">Round R2 active · stage bound</div>
+      <div class="legend">
+        <span class="accent">Active</span>
+        <span class="mute">Closed</span>
+        <span class="outline">Planned</span>
+      </div>
+    </div>
+  </body>
+</html>

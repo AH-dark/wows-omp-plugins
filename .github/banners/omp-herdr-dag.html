@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en" data-banner="omp-herdr-dag" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>omp-herdr-dag</title>
+    <link rel="stylesheet" href="banner.css" />
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+    </script>
+  </head>
+  <body>
+    <div class="grid meta">
+      <div class="idx"><b>07</b> / 08</div>
+      <div>wows-omp-plugins</div>
+      <div>/dag-pane</div>
+    </div>
+    <div class="rule top"></div>
+
+    <div class="grid body">
+      <div class="lead">
+        <div class="title">omp-herdr-dag<span class="acc">.</span></div>
+        <div class="tag">A live graph of what OMP is working on, in a Herdr side pane. It only observes.</div>
+      </div>
+      <div class="fig">
+        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Todos, plan execution and Atlas plans feed a read-only Herdr pane that draws the dependency graph and its critical path">
+          <defs>
+            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <!-- sources: native todos, plan execution, Atlas plans -> Herdr pane -->
+          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="10" y="20">01</text>
+          <text class="d-lbl" x="10" y="40">Todos</text>
+          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="136" y="20">02</text>
+          <text class="d-lbl" x="136" y="40">Plan</text>
+          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="262" y="20">03</text>
+          <text class="d-lbl" x="262" y="40">Atlas</text>
+          <rect class="d-end" x="378" y="0" width="106" height="49" />
+          <text class="d-num" x="388" y="20">04</text>
+          <text class="d-end-lbl" x="388" y="40">Herdr</text>
+
+          <!-- read-only feed into the pane -->
+          <path class="d-link" d="M53,49 V72 H431 V51" marker-end="url(#head)" />
+          <line class="d-link" x1="179" y1="49" x2="179" y2="72" />
+          <line class="d-link" x1="305" y1="49" x2="305" y2="72" />
+          <rect class="d-mask" x="64" y="62" width="104" height="20" />
+          <text class="d-mono" x="116" y="77" text-anchor="middle">read-only</text>
+
+          <!-- the graph in the pane: layered nodes, critical path in accent -->
+          <g transform="translate(0,112)">
+            <!-- edges -->
+            <path class="d-link" d="M36,48 H64" />
+            <path class="d-link" d="M100,48 H112 V32 H128" />
+            <path class="d-link" d="M164,28 H176 V48 H192" />
+            <path class="d-link" d="M228,48 H240 V32 H256" />
+            <path class="d-accent" d="M36,8 H64 M100,8 H112 V24 H128 M164,28 H176 V8 H192 M228,8 H240 V24 H256" />
+
+            <!-- layers 1-2: done -->
+            <rect class="d-fill-mute" x="0" y="0" width="36" height="16" />
+            <rect class="d-fill-mute" x="0" y="40" width="36" height="16" />
+            <rect class="d-fill-mute" x="64" y="0" width="36" height="16" />
+            <rect class="d-fill-mute" x="64" y="40" width="36" height="16" />
+            <!-- layer 3: done -->
+            <rect class="d-fill-mute" x="128" y="20" width="36" height="16" />
+            <!-- layer 4: running -->
+            <rect class="d-fill-tint" x="192" y="0" width="36" height="16" />
+            <rect class="d-fill-tint" x="192" y="40" width="36" height="16" />
+            <!-- layer 5: pending -->
+            <rect class="d-box" x="256.5" y="20.5" width="35" height="15" />
+
+            <path class="d-accent" d="M292,28 H316" />
+            <text class="d-lbl accent" x="326" y="34">Critical path</text>
+            <text class="d-mono" x="326" y="58">longest chain</text>
+            <text class="d-mono" x="326" y="78">by elapsed time</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="rule bottom"></div>
+    <div class="grid foot">
+      <div class="status">displayTiming · plan-execution</div>
+      <div class="legend">
+        <span class="mute">Done</span>
+        <span class="tint">Running</span>
+        <span class="outline">Pending</span>
+        <span class="accent">Critical path</span>
+      </div>
+    </div>
+  </body>
+</html>

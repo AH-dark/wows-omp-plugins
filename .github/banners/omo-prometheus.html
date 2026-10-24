@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en" data-banner="omo-prometheus" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>omo-prometheus</title>
+    <link rel="stylesheet" href="banner.css" />
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+    </script>
+    <style>
+      /* longest name in the set: step the title down so it clears the figure rule */
+      .title {
+        font-size: 76px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid meta">
+      <div class="idx"><b>04</b> / 08</div>
+      <div>wows-omp-plugins</div>
+      <div>/prometheus</div>
+    </div>
+    <div class="rule top"></div>
+
+    <div class="grid body">
+      <div class="lead">
+        <div class="title">omo-prometheus<span class="acc">.</span></div>
+        <div class="tag">Prometheus interviews you into a plan; Atlas delegates every task and runs four verification gates.</div>
+      </div>
+      <div class="fig">
+        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Metis, Prometheus and approval hand off to Atlas, which delegates tasks with evidence and runs four final gates">
+          <defs>
+            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <!-- planning: metis -> prometheus -> approve -> atlas -->
+          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="10" y="20">01</text>
+          <text class="d-lbl" x="10" y="40">Metis</text>
+          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="136" y="20">02</text>
+          <text class="d-lbl" x="136" y="40">Prometheus</text>
+          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="262" y="20">03</text>
+          <text class="d-lbl" x="262" y="40">Approve</text>
+          <rect class="d-end" x="378" y="0" width="106" height="49" />
+          <text class="d-num" x="388" y="20">04</text>
+          <text class="d-end-lbl" x="388" y="40">Atlas</text>
+          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head)" />
+
+          <!-- atlas hands every task to a child agent -->
+          <path class="d-accent" d="M431,49 V72 H16 V102" marker-end="url(#head-accent)" />
+          <rect class="d-mask" x="144" y="62" width="220" height="20" />
+          <text class="d-mono accent" x="254" y="77" text-anchor="middle">delegate to subagents</text>
+
+          <!-- ledger rows, then the four final gates, then done -->
+          <g transform="translate(0,104)">
+            <rect class="d-fill-accent" x="0" y="0" width="32" height="32" />
+            <rect class="d-fill-accent" x="40" y="0" width="32" height="32" />
+            <rect class="d-fill-tint" x="80" y="0" width="32" height="32" />
+            <rect class="d-fill-mute" x="120" y="0" width="32" height="32" />
+            <line class="d-link" x1="158" y1="16" x2="182" y2="16" marker-end="url(#head)" />
+            <rect class="d-box" x="190.5" y="0.5" width="31" height="31" />
+            <rect class="d-box" x="230.5" y="0.5" width="31" height="31" />
+            <rect class="d-box" x="270.5" y="0.5" width="31" height="31" />
+            <rect class="d-box" x="310.5" y="0.5" width="31" height="31" />
+            <line class="d-link" x1="348" y1="16" x2="377" y2="16" marker-end="url(#head)" />
+            <rect class="d-end" x="378" y="0" width="106" height="32" />
+            <text class="d-end-lbl" x="388" y="22">Done</text>
+
+            <text class="d-mono" x="16" y="54" text-anchor="middle">T1</text>
+            <text class="d-mono" x="56" y="54" text-anchor="middle">T2</text>
+            <text class="d-mono" x="96" y="54" text-anchor="middle">T3</text>
+            <text class="d-mono" x="136" y="54" text-anchor="middle">T4</text>
+            <text class="d-mono" x="206" y="54" text-anchor="middle">F1</text>
+            <text class="d-mono" x="246" y="54" text-anchor="middle">F2</text>
+            <text class="d-mono" x="286" y="54" text-anchor="middle">F3</text>
+            <text class="d-mono" x="326" y="54" text-anchor="middle">F4</text>
+            <text class="d-mono accent" x="76" y="80" text-anchor="middle">ledger + proof</text>
+            <text class="d-mono accent" x="266" y="80" text-anchor="middle">final gates</text>
+            <text class="d-mono" x="388" y="54">PASS only</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="rule bottom"></div>
+    <div class="grid foot">
+      <div class="status">Atlas · T3 running · F1–F4 pending</div>
+      <div class="legend">
+        <span class="accent">Verified</span>
+        <span class="tint">Running</span>
+        <span class="mute">Blocked</span>
+        <span class="outline">Pending</span>
+      </div>
+    </div>
+  </body>
+</html>

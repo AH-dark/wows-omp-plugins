@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en" data-banner="judge-dispatch" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>judge-dispatch</title>
+    <link rel="stylesheet" href="banner.css" />
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+    </script>
+  </head>
+  <body>
+    <div class="grid meta">
+      <div class="idx"><b>03</b> / 08</div>
+      <div>wows-omp-plugins</div>
+      <div>task</div>
+    </div>
+    <div class="rule top"></div>
+
+    <div class="grid body">
+      <div class="lead">
+        <div class="title">judge-dispatch<span class="acc">.</span></div>
+        <div class="tag">A judge model picks each subagent's agent and rates its task; your config decides the rest.</div>
+      </div>
+      <div class="fig">
+        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Task call judged for agent and difficulty, mapped by configuration to the spawn">
+          <defs>
+            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <!-- one spawn: task -> judge -> config -> spawn -->
+          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="10" y="20">01</text>
+          <text class="d-lbl" x="10" y="40">Task</text>
+          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="136" y="20">02</text>
+          <text class="d-lbl" x="136" y="40">Judge</text>
+          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="262" y="20">03</text>
+          <text class="d-lbl" x="262" y="40">Config</text>
+          <rect class="d-end" x="378" y="0" width="106" height="49" />
+          <text class="d-num" x="388" y="20">04</text>
+          <text class="d-end-lbl" x="388" y="40">Spawn</text>
+          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head)" />
+
+          <!-- the judge rates difficulty for every item -->
+          <path class="d-accent" d="M179,49 V86 M53,104 V86 H431 V104" />
+          <rect class="d-mask" x="149" y="58" width="60" height="20" />
+          <text class="d-mono accent" x="179" y="73" text-anchor="middle">rates</text>
+          <!-- difficulty scale and what each rating changes -->
+          <g transform="translate(0,112)">
+            <rect class="d-fill-mute" x="0" y="0" width="106" height="12" />
+            <rect class="d-fill-tint" x="126" y="0" width="106" height="12" />
+            <rect class="d-fill-accent" x="252" y="0" width="106" height="12" />
+            <text class="d-lbl" x="0" y="40">routine</text>
+            <text class="d-lbl" x="126" y="40">standard</text>
+            <text class="d-lbl accent" x="252" y="40">demanding</text>
+            <text class="d-mono" x="0" y="62">thinking −1</text>
+            <text class="d-mono" x="126" y="62">unchanged</text>
+            <text class="d-mono" x="252" y="62">thinking +1</text>
+            <text class="d-mono" x="0" y="82">or tier</text>
+            <text class="d-mono" x="252" y="82">or tier</text>
+
+            <rect class="d-box" x="378.5" y="0.5" width="105" height="11" />
+            <text class="d-mono accent" x="378" y="40">&lt; 0.70</text>
+            <text class="d-mono" x="378" y="62">kept as</text>
+            <text class="d-mono" x="378" y="82">requested</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="rule bottom"></div>
+    <div class="grid foot">
+      <div class="status">#2 task kept (0.93) · thinking medium → high (0.92)</div>
+      <div class="legend">
+        <span class="mute">routine</span>
+        <span class="tint">standard</span>
+        <span class="accent">demanding</span>
+        <span class="outline">kept</span>
+      </div>
+    </div>
+  </body>
+</html>

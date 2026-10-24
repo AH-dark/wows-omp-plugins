@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en" data-banner="omo-toolkit" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>omo-toolkit</title>
+    <link rel="stylesheet" href="banner.css" />
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+    </script>
+  </head>
+  <body>
+    <div class="grid meta">
+      <div class="idx"><b>05</b> / 08</div>
+      <div>wows-omp-plugins</div>
+      <div>task · /skill:</div>
+    </div>
+    <div class="rule top"></div>
+
+    <div class="grid body">
+      <div class="lead">
+        <div class="title">omo-toolkit<span class="acc">.</span></div>
+        <div class="tag">Category and research agents, workflow skills and two docs MCP servers, adapted from OmO.</div>
+      </div>
+      <div class="fig">
+        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Agent selection: pick a lane, start with deep-low, escalate to deep-high, then ask you; plus 8 agents, 8 skills and 2 MCP servers">
+          <defs>
+            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <!-- selection protocol: pick lane -> deep-low -> escalate to deep-high -> escalate to you -->
+          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="10" y="20">01</text>
+          <text class="d-lbl" x="10" y="40">Pick lane</text>
+          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="136" y="20">02</text>
+          <text class="d-lbl" x="136" y="40">deep-low</text>
+          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="262" y="20">03</text>
+          <text class="d-lbl" x="262" y="40">deep-high</text>
+          <rect class="d-end" x="378" y="0" width="106" height="49" />
+          <text class="d-num" x="388" y="20">04</text>
+          <text class="d-end-lbl" x="388" y="40">Ask you</text>
+          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
+          <line class="d-accent" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head-accent)" />
+          <line class="d-accent" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head-accent)" />
+
+          <!-- escalation span -->
+          <path class="d-accent" d="M179,57 V72 H431 V57" />
+          <rect class="d-mask" x="255" y="62" width="100" height="20" />
+          <text class="d-mono accent" x="305" y="77" text-anchor="middle">ESCALATE</text>
+
+          <!-- inventory: 8 agents, 8 skills, 2 MCP servers -->
+          <g transform="translate(0,108)">
+            <rect class="d-fill-accent" x="0" y="0" width="16" height="16" />
+            <rect class="d-fill-accent" x="22" y="0" width="16" height="16" />
+            <rect class="d-fill-accent" x="44" y="0" width="16" height="16" />
+            <rect class="d-fill-accent" x="66" y="0" width="16" height="16" />
+            <rect class="d-fill-accent" x="88" y="0" width="16" height="16" />
+            <rect class="d-fill-accent" x="110" y="0" width="16" height="16" />
+            <rect class="d-fill-accent" x="132" y="0" width="16" height="16" />
+            <rect class="d-fill-accent" x="154" y="0" width="16" height="16" />
+            <text class="d-mono" x="196" y="14">8 agents → task</text>
+
+            <rect class="d-fill-tint" x="0" y="30" width="16" height="16" />
+            <rect class="d-fill-tint" x="22" y="30" width="16" height="16" />
+            <rect class="d-fill-tint" x="44" y="30" width="16" height="16" />
+            <rect class="d-fill-tint" x="66" y="30" width="16" height="16" />
+            <rect class="d-fill-tint" x="88" y="30" width="16" height="16" />
+            <rect class="d-fill-tint" x="110" y="30" width="16" height="16" />
+            <rect class="d-fill-tint" x="132" y="30" width="16" height="16" />
+            <rect class="d-fill-tint" x="154" y="30" width="16" height="16" />
+            <text class="d-mono" x="196" y="44">8 skills → /skill:</text>
+
+            <rect class="d-fill-mute" x="0" y="60" width="16" height="16" />
+            <rect class="d-fill-mute" x="22" y="60" width="16" height="16" />
+            <text class="d-mono" x="196" y="74">2 MCP → context7, grep_app</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="rule bottom"></div>
+    <div class="grid foot">
+      <div class="status">Adapted from oh-my-openagent</div>
+      <div class="legend">
+        <span class="accent">Agents</span>
+        <span class="tint">Skills</span>
+        <span class="mute">MCP</span>
+      </div>
+    </div>
+  </body>
+</html>
