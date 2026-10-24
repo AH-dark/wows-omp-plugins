@@ -44,8 +44,10 @@ REFERENCE*.md                  plugin-state snapshot envelope shared by plugins
   that matrix entry only together with the documented floor. Types and tests
   are skipped for the release PR, for its `chore: release main` merge, and for
   changes that touch only `README*.md`, `REFERENCE*.md`, `CHANGELOG.md`,
-  `CONTRIBUTING.md`, or `AGENTS.md`, since no test reads those files. If a
-  test starts reading one, narrow the filter in the `scope` job.
+  `CONTRIBUTING.md`, `AGENTS.md`, or the banners in `.github/banners/`, since
+  no test reads those files. Lint still runs on them, because Biome checks the
+  banner HTML and CSS. If a test starts reading one, narrow the filter in the
+  `scope` job.
 - `.github/workflows/release.yml` runs release-please on `main`. Versions come
   from Conventional Commits scoped by path: a `feat`/`fix` touching
   `plugins/<name>/` bumps that plugin only. The release PR updates the plugin's
