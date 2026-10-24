@@ -1,0 +1,373 @@
+/*
+ * README banner system (Swiss / editorial). Rendered by `bun run banners`.
+ *
+ * Canvas 1280x400 CSS px, captured at 2x. 48px margins, 12 columns of 84px with 16px gutters (1184px).
+ *   meta row   y 44-72     index `NN / 08`, context, right-aligned detail
+ *   top rule   y 84        2px ink
+ *   body       y 84-320    .lead (title + tagline) and .fig (diagram slot, 484x196 SVG)
+ *   bottom rule y 320      2px ink
+ *   footer     y 322-356   status or label left, legend or link right
+ *
+ * Themes: `<html data-theme="light|dark">`, set from `?theme=` by each page's inline script.
+ * Accents: one per banner, selected by `<html data-banner="<name>">`; light / dark value.
+ *
+ *   NN  banner           light     dark
+ *   00  root             #E5322D   #FF4A3D   signal red
+ *   01  adr              #2B59FF   #7A96FF   blue
+ *   02  audit-goal       #F26A00   #FF8A33   orange
+ *   03  judge-dispatch   #0E9F6E   #34C98F   emerald
+ *   04  omo-prometheus   #7A3CE0   #A57BFF   violet
+ *   05  omo-toolkit      #B57C00   #F2B705   ochre
+ *   06  omo-ultrawork    #D6246E   #FF5C9A   magenta
+ *   07  omp-herdr-dag    #0E85A8   #3DB8DC   cyan
+ *   08  roadmap          #5E7A00   #A3C93A   olive
+ */
+
+/* ---------- accents ---------- */
+[data-banner="root"] {
+  --accent-light: #e5322d;
+  --accent-dark: #ff4a3d;
+}
+[data-banner="adr"] {
+  --accent-light: #2b59ff;
+  --accent-dark: #7a96ff;
+}
+[data-banner="audit-goal"] {
+  --accent-light: #f26a00;
+  --accent-dark: #ff8a33;
+}
+[data-banner="judge-dispatch"] {
+  --accent-light: #0e9f6e;
+  --accent-dark: #34c98f;
+}
+[data-banner="omo-prometheus"] {
+  --accent-light: #7a3ce0;
+  --accent-dark: #a57bff;
+}
+[data-banner="omo-toolkit"] {
+  --accent-light: #b57c00;
+  --accent-dark: #f2b705;
+}
+[data-banner="omo-ultrawork"] {
+  --accent-light: #d6246e;
+  --accent-dark: #ff5c9a;
+}
+[data-banner="omp-herdr-dag"] {
+  --accent-light: #0e85a8;
+  --accent-dark: #3db8dc;
+}
+[data-banner="roadmap"] {
+  --accent-light: #5e7a00;
+  --accent-dark: #a3c93a;
+}
+
+/* ---------- themes ---------- */
+:root[data-theme="light"] {
+  --paper: #f1eee6;
+  --ink: #121212;
+  --ink-2: #5c5a55;
+  --ink-3: #a29e95;
+  --edge: transparent;
+  --accent: var(--accent-light);
+  --tint-mix: 45%;
+}
+:root[data-theme="dark"] {
+  --paper: #1a1917;
+  --ink: #f1eee6;
+  --ink-2: #a8a399;
+  --ink-3: #6e6a62;
+  --edge: #3a3731;
+  --accent: var(--accent-dark);
+  --tint-mix: 62%;
+}
+:root {
+  --tint: color-mix(in srgb, var(--accent) var(--tint-mix), var(--paper));
+  --m: 48px;
+  --col: 84px;
+  --gut: 16px;
+  --display: "Inter Display", "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* ---------- page ---------- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 1280px;
+  height: 400px;
+  overflow: hidden;
+  background: var(--paper);
+}
+body {
+  position: relative;
+  font-family: var(--display);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+body::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--edge);
+  pointer-events: none;
+}
+
+/* ---------- grid rows ---------- */
+.grid {
+  position: absolute;
+  left: var(--m);
+  right: var(--m);
+  display: grid;
+  grid-template-columns: repeat(12, var(--col));
+  column-gap: var(--gut);
+}
+.rule {
+  position: absolute;
+  left: var(--m);
+  right: var(--m);
+  border-top: 2px solid var(--ink);
+}
+.rule.top {
+  top: 84px;
+}
+.rule.bottom {
+  top: 320px;
+}
+.meta,
+.foot {
+  align-items: center;
+  font: 500 15px / 1 var(--mono);
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  text-transform: uppercase;
+}
+.meta {
+  top: 44px;
+  height: 28px;
+}
+.foot {
+  top: 322px;
+  height: 34px;
+}
+.meta > :nth-child(1) {
+  grid-column: 1 / 3;
+}
+.meta > :nth-child(2) {
+  grid-column: 3 / 8;
+}
+.meta > :nth-child(3),
+.foot > :nth-child(2) {
+  grid-column: 8 / 13;
+  text-align: right;
+}
+.foot > :nth-child(1) {
+  grid-column: 1 / 8;
+}
+.idx {
+  color: var(--ink);
+  font-weight: 700;
+}
+.idx b,
+.acc {
+  color: var(--accent);
+}
+
+/* ---------- body ---------- */
+.body {
+  top: 84px;
+  height: 236px;
+}
+.lead {
+  grid-column: 1 / 8;
+}
+.fig {
+  grid-column: 8 / 13;
+  margin-left: calc(var(--gut) * -1);
+  padding: 26px 0 0 var(--gut);
+  border-left: 1px solid var(--ink);
+}
+.body.wide .lead {
+  grid-column: 1 / 9;
+}
+.body.wide .fig {
+  grid-column: 9 / 13;
+  padding-top: 22px;
+}
+.title {
+  margin-top: 36px;
+  font-weight: 900;
+  font-size: 84px;
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+}
+.tag {
+  max-width: 600px;
+  margin-top: 22px;
+  font-weight: 500;
+  font-size: 26px;
+  line-height: 1.18;
+  letter-spacing: -0.015em;
+}
+.body.wide .tag {
+  max-width: none;
+  font-size: 28px;
+}
+.cmd {
+  display: flex;
+  gap: 12px;
+  margin-top: 26px;
+  font: 500 16px / 1 var(--mono);
+}
+.cmd::before {
+  content: "$";
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---------- index list (root) ---------- */
+.fig-label {
+  margin-bottom: 14px;
+  font: 500 15px / 1 var(--mono);
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.index {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(4, auto);
+  grid-auto-flow: column;
+  column-gap: var(--gut);
+  list-style: none;
+}
+.index li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 0 10px;
+  border-top: 1px solid var(--ink);
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.index b {
+  width: 22px;
+  font: 700 15px / 1 var(--mono);
+  color: var(--accent);
+}
+
+/* ---------- footer pieces ---------- */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-transform: none;
+}
+.status::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+}
+.legend {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 18px;
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.legend span::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  background: var(--swatch);
+}
+.legend .accent {
+  --swatch: var(--accent);
+}
+.legend .tint {
+  --swatch: var(--tint);
+}
+.legend .mute {
+  --swatch: var(--ink-3);
+}
+.legend .outline::before {
+  border: 1px solid var(--ink);
+}
+
+/* ---------- diagram primitives (inline SVG inside .fig, viewBox 0 0 484 196) ---------- */
+.fig svg {
+  display: block;
+  overflow: visible;
+}
+.d-box {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+.d-end {
+  fill: var(--ink);
+}
+.d-link {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+.d-accent {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.d-head {
+  fill: var(--ink);
+}
+.d-head-accent {
+  fill: var(--accent);
+}
+.d-mask {
+  fill: var(--paper);
+}
+.d-fill-accent {
+  fill: var(--accent);
+}
+.d-fill-tint {
+  fill: var(--tint);
+}
+.d-fill-mute {
+  fill: var(--ink-3);
+}
+.d-num {
+  font: 700 15px var(--mono);
+  fill: var(--accent);
+}
+.d-lbl {
+  font: 600 17px var(--display);
+  letter-spacing: -0.01em;
+  fill: var(--ink);
+}
+.d-end-lbl {
+  font: 600 17px var(--display);
+  letter-spacing: -0.01em;
+  fill: var(--paper);
+}
+.d-mono {
+  font: 500 15px var(--mono);
+  letter-spacing: 0.02em;
+  fill: var(--ink-2);
+}
+.d-mono.accent,
+.d-lbl.accent {
+  fill: var(--accent);
+}

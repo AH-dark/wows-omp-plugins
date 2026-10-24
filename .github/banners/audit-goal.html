@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en" data-banner="audit-goal" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>audit-goal</title>
+    <link rel="stylesheet" href="banner.css" />
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+    </script>
+  </head>
+  <body>
+    <div class="grid meta">
+      <div class="idx"><b>02</b> / 08</div>
+      <div>wows-omp-plugins</div>
+      <div>/audit</div>
+    </div>
+    <div class="rule top"></div>
+
+    <div class="grid body">
+      <div class="lead">
+        <div class="title">audit-goal<span class="acc">.</span></div>
+        <div class="tag">Review that lives in OMP, fixes what it finds, and keeps looping until the audit converges.</div>
+      </div>
+      <div class="fig">
+        <svg width="484" height="196" viewBox="0 0 484 196" role="img" aria-label="Audit, verify, fix, ledger loop converging over rounds">
+          <defs>
+            <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path class="d-head" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+            <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path class="d-head-accent" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <!-- one round: audit -> verify -> fix -> ledger -->
+          <rect class="d-box" x="0.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="10" y="20">01</text>
+          <text class="d-lbl" x="10" y="40">Audit</text>
+          <rect class="d-box" x="126.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="136" y="20">02</text>
+          <text class="d-lbl" x="136" y="40">Verify</text>
+          <rect class="d-box" x="252.5" y="0.5" width="106" height="48" />
+          <text class="d-num" x="262" y="20">03</text>
+          <text class="d-lbl" x="262" y="40">Fix</text>
+          <rect class="d-end" x="378" y="0" width="106" height="49" />
+          <text class="d-num" x="388" y="20">04</text>
+          <text class="d-end-lbl" x="388" y="40">Ledger</text>
+          <line class="d-link" x1="107" y1="25" x2="125" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="233" y1="25" x2="251" y2="25" marker-end="url(#head)" />
+          <line class="d-link" x1="359" y1="25" x2="377" y2="25" marker-end="url(#head)" />
+
+          <!-- loop back to the next round -->
+          <path class="d-accent" d="M431,49 V72 H53 V51" marker-end="url(#head-accent)" />
+          <rect class="d-mask" x="186" y="62" width="112" height="20" />
+          <text class="d-mono accent" x="242" y="77" text-anchor="middle">next round</text>
+
+          <!-- findings per round, stacked Critical / Major / Minor / Picky, shrinking to convergence -->
+          <g transform="translate(0,104)">
+            <line class="d-link" x1="0" y1="62" x2="292" y2="62" />
+            <rect class="d-fill-accent" x="0" y="0" width="36" height="12" />
+            <rect class="d-fill-tint" x="0" y="12" width="36" height="16" />
+            <rect class="d-fill-mute" x="0" y="28" width="36" height="20" />
+            <rect class="d-box" x="0.5" y="48.5" width="35" height="13" />
+
+            <rect class="d-fill-accent" x="64" y="16" width="36" height="6" />
+            <rect class="d-fill-tint" x="64" y="22" width="36" height="12" />
+            <rect class="d-fill-mute" x="64" y="34" width="36" height="16" />
+            <rect class="d-box" x="64.5" y="50.5" width="35" height="11" />
+
+            <rect class="d-fill-tint" x="128" y="30" width="36" height="6" />
+            <rect class="d-fill-mute" x="128" y="36" width="36" height="14" />
+            <rect class="d-box" x="128.5" y="50.5" width="35" height="11" />
+
+            <rect class="d-fill-mute" x="192" y="42" width="36" height="10" />
+            <rect class="d-box" x="192.5" y="52.5" width="35" height="9" />
+
+            <rect class="d-fill-mute" x="256" y="48" width="36" height="5" />
+            <rect class="d-box" x="256.5" y="53.5" width="35" height="8" />
+
+            <text class="d-mono" x="18" y="86" text-anchor="middle">R1</text>
+            <text class="d-mono" x="82" y="86" text-anchor="middle">R2</text>
+            <text class="d-mono" x="146" y="86" text-anchor="middle">R3</text>
+            <text class="d-mono" x="210" y="86" text-anchor="middle">R4</text>
+            <text class="d-mono" x="274" y="86" text-anchor="middle">R5</text>
+
+            <path class="d-accent" d="M192,30 V22 H292 V30 M292,22 H316" />
+            <text class="d-lbl accent" x="326" y="28">Converged</text>
+            <text class="d-mono" x="326" y="52">2 rounds, no</text>
+            <text class="d-mono" x="326" y="72">Critical/Major</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="rule bottom"></div>
+    <div class="grid foot">
+      <div class="status">Audit 2/5 · standard</div>
+      <div class="legend">
+        <span class="accent">Critical</span>
+        <span class="tint">Major</span>
+        <span class="mute">Minor</span>
+        <span class="outline">Picky</span>
+      </div>
+    </div>
+  </body>
+</html>

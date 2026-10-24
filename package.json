@@ -15,6 +15,7 @@
     "format": "biome format --write .",
     "check-types": "tsc --noEmit",
     "check-catalog": "bun run src/check-catalog.ts",
+    "banners": "bun run src/render-banners.ts",
     "dev:plugins": "bun run src/dev-marketplace.ts",
     "test": "bun test --parallel --max-concurrency=4 --timeout=10000"
   },
