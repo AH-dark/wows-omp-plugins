@@ -67,6 +67,7 @@ async function sdk(root: string, aftEntry: string, reverse: boolean): Promise<vo
     join(root, ".omp/plugin-overrides.json"),
     JSON.stringify({ settings: { "wows-omp-plugin-omo-prometheus": { herdrDag: false, atlasWidget: false } } }),
   );
+  await mkdir(join(root, "src"));
   await writeFile(join(root, "sample.ts"), 'export const message = "before";\n');
   const pluginEntries = ["adr", "roadmap", "omo-prometheus"].map((name) => join(HERE, "../plugins", name, "src/index.ts"));
   const common = {
@@ -151,6 +152,11 @@ async function sdk(root: string, aftEntry: string, reverse: boolean): Promise<vo
       await blocked("aft_move", { path: "sample.ts", destination: `${directory}/injected.ts` }, /[Mm]anaged|mutation/);
       await blocked("aft_import", { op: "organize", path: `${directory}/README.md` }, /[Mm]anaged|mutation/);
       await blocked("ast_grep_replace", { paths: [directory], lang: "typescript", pattern: "$A", rewrite: "$A" }, /[Mm]anaged|mutation/);
+      await blocked(
+        "ast_grep_replace",
+        { paths: [`src ${directory}`], lang: "typescript", pattern: "$A", rewrite: "$A" },
+        /^Managed .*must change through/,
+      );
     }
     let sampleEdit: Record<string, unknown> = { path: "sample.ts", edits: [{ oldString: "before", newString: "after" }] };
     if (hashline) {
