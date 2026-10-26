@@ -9,6 +9,8 @@
 
 import { prompt } from "@oh-my-pi/pi-utils";
 
+import type { AftBinding, AftCapability, AftProjection, AftProjectionKind, AftTool } from "./aft-contract.ts";
+
 /** Slash command that toggles Prometheus planning, like the host's `/plan`. */
 export const PROMETHEUS_COMMANDS: Record<string, true> = { prometheus: true };
 
@@ -154,7 +156,8 @@ export const PROMETHEUS_OPT_IN_QUESTION_ID = "prometheus-workflow-opt-in";
 export const PROMETHEUS_STANDARD_OPTION_INDEX = 0;
 export const PROMETHEUS_DEEP_OPTION_INDEX = 1;
 
-function record(value: unknown): Record<string, unknown> | undefined {
+/** Narrows an arbitrary tool-call input to a plain JSON object, as every AFT argument payload is. */
+export function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
@@ -503,6 +506,144 @@ const SAFE_XDEV_TOOLS: Record<string, true> = {
 /** `proc://<id>/kill` cancels a job or child; stdin and service-mode writes drive a process instead. */
 const PROC_CANCEL_PATH = /^proc:\/\/[^/?#]+\/kill\/?$/i;
 
+/**
+ * Host tool names AFT may shadow with its own same-name implementation, each admitted under a specific capability.
+ * `read`/`grep` also have a legitimate builtin form, so a bound-AFT match here only ever adds permission for the
+ * verified extension instance; a non-matching source falls through to the native builtin path below, unaffected.
+ * `write` has no per-call-ambiguity-free capability: AFT's own `write` forwards every internal URL (`agent://`,
+ * `proc://`, `xd://`, `local://`) to the native tool (`native-url`), so Atlas's existing `writeBlockReason` stays the
+ * sole authority over which internal URLs are coordination; a real file mutation must still fail there as before.
+ * Trusting the binding's static `native-url` capability for `write` is not enough on its own (a capability is
+ * declared once for the whole tool, not per call), so an extension-sourced `write` additionally requires
+ * `aftProjectionBlockReason` to confirm, for this exact call, that AFT itself projects `kind: "native"`.
+ */
+const AFT_FALLTHROUGH_TOOLS: Record<string, AftCapability> = { read: "observation", grep: "observation", write: "native-url" };
+
+/**
+ * AFT's own tools that are genuinely non-mutating inspection surfaces with no per-call ambiguity: outline, zoom,
+ * search, inspect, callgraph, conflicts, and ast-grep's dry-run search. None of these has a mutating variant, so the
+ * binding's static `observation` capability plus exact source is already the authoritative admission.
+ */
+const AFT_STATIC_OBSERVATION_TOOLS: Record<string, true> = {
+  aft_outline: true,
+  aft_zoom: true,
+  aft_search: true,
+  aft_inspect: true,
+  aft_callgraph: true,
+  aft_conflicts: true,
+  ast_grep_search: true,
+};
+
+/**
+ * AFT tools whose kind genuinely depends on this call's arguments: `aft_safety`'s `op` ranges from `list`/`history`
+ * (observation) to `checkpoint`/`restore`/`undo`/`purge` (mutation), and `ast_grep_replace` only previews without
+ * `dryRun: true`. Each function is the cheap synchronous prefilter; admission still requires exact source, the
+ * binding's static `observation` capability, and (like `write`) a live `aftProjectionBlockReason` confirmation that
+ * AFT itself projects `kind: "observation"` for this exact call — the static capability and this prefilter alone
+ * never broaden a mutating call.
+ */
+const AFT_OPERATION_GATED_TOOLS: Record<string, (input: Record<string, unknown>) => string | undefined> = {
+  aft_safety: (input) => {
+    const op = stringField(input, "op");
+    return op === "list" || op === "history"
+      ? undefined
+      : `\`aft_safety\` op \`${op || "(missing)"}\` can create, restore, undo, or purge a checkpoint`;
+  },
+  ast_grep_replace: (input) => (input.dryRun === true ? undefined : "`ast_grep_replace` without `dryRun: true` rewrites files"),
+};
+
+/** The enumerated AFT tool names requiring only the synchronous capability+exact-source layer (no per-call projection). */
+const AFT_OBSERVATION_TOOLS: Record<string, true> = {
+  ...AFT_STATIC_OBSERVATION_TOOLS,
+  aft_safety: true,
+  ast_grep_replace: true,
+};
+
+/**
+ * `write`'s admitted kind (`native`, an internal-URL delegation) and the op-gated tools' admitted kind (`observation`)
+ * once AFT's real wire grammar classifies this exact call; checked only after exact source and static capability
+ * already passed. Static capability declarations and the synchronous prefilters above are never sufficient alone.
+ */
+const AFT_PROJECTED_KIND: Record<string, AftProjectionKind> = {
+  write: "native",
+  aft_safety: "observation",
+  ast_grep_replace: "observation",
+};
+
+/** Whether `toolName` is a name AFT may register, so a binding handshake is worth requesting before classifying it. */
+export function isAftToolName(toolName: string): boolean {
+  return AFT_FALLTHROUGH_TOOLS[toolName] !== undefined || AFT_OBSERVATION_TOOLS[toolName] === true;
+}
+
+/** Whether `toolName` additionally needs the async `aftProjectionBlockReason` check after the synchronous guards pass. */
+export function needsAftProjection(toolName: string): boolean {
+  return AFT_PROJECTED_KIND[toolName] !== undefined;
+}
+
+/**
+ * The explicit, per-call-safe admission for an AFT observation-family tool call: a static-observation tool passes
+ * unconditionally (no mutating variant exists); an operation-gated tool first runs its own cheap prefilter. Neither
+ * branch is the final word — the caller still verifies exact source/capability and, for operation-gated tools and
+ * `write`, the live projection.
+ */
+function aftObservationBlockReason(toolName: string, input: Record<string, unknown>): string | undefined {
+  const gate = AFT_OPERATION_GATED_TOOLS[toolName];
+  if (gate) return gate(input);
+  if (AFT_STATIC_OBSERVATION_TOOLS[toolName] === true) return undefined;
+  return `\`${toolName}\` is not an enumerated AFT observation tool`;
+}
+
+/** The bound AFT tool for `toolName` in this session, if the binding registers it with `capability`. */
+function aftBoundTool(trusted: TrustedToolSources, toolName: string, capability: AftCapability): AftTool | undefined {
+  const tool = trusted.aft?.tools.get(toolName);
+  return tool?.capabilities.has(capability) ? tool : undefined;
+}
+
+/** Shared by both guard layers so a missing or wrongly-capable AFT handshake reads the same wherever it is caught. */
+function unauthenticatedAftTool(toolName: string): string {
+  return `\`${toolName}\` is not authenticated: no AFT binding in this session registers \`${toolName}\` with the required capability (check that AFT is installed, enabled, and registers this tool)`;
+}
+
+/**
+ * Confirms, for this exact call, that AFT's own live projection agrees with the kind Atlas is about to admit for
+ * `toolName`. Called only after `executionToolSourceBlockReason` already verified exact source and static capability;
+ * a missing binding, a thrown projector, or a mismatched kind all refuse. Never broadens what the synchronous guards
+ * already decided: `write`'s admitted internal-URL subset (`agent://`, `proc://<id>/kill`, guarded `xd://` devices)
+ * is still `writeBlockReason` alone, and an operation-gated tool's admitted ops are still its own prefilter alone —
+ * this only adds a requirement, never a bypass.
+ */
+export async function aftProjectionBlockReason(
+  trusted: TrustedToolSources,
+  toolName: string,
+  input: Record<string, unknown>,
+  cwd: string,
+): Promise<string | undefined> {
+  const expectedKind = AFT_PROJECTED_KIND[toolName];
+  if (!expectedKind) return undefined;
+  const binding = trusted.aft;
+  if (!binding) return unauthenticatedAftTool(toolName);
+  let projection: AftProjection;
+  try {
+    projection = await binding.project(toolName, input, cwd);
+  } catch (error) {
+    return `\`${toolName}\` could not be classified: the AFT binding's projection threw (${error instanceof Error ? error.message : String(error)})`;
+  }
+  const value = record(projection);
+  if (
+    !value ||
+    typeof value.kind !== "string" ||
+    !Array.isArray(value.paths) ||
+    value.paths.some((path) => typeof path !== "string") ||
+    typeof value.broad !== "boolean"
+  ) {
+    return `\`${toolName}\` could not be classified: the AFT binding returned a malformed projection`;
+  }
+  if (value.kind !== expectedKind) {
+    return `\`${toolName}\` is not admitted: AFT projects this call as \`${value.kind}\`, not the required \`${expectedKind}\``;
+  }
+  return undefined;
+}
+
 function stringField(input: Record<string, unknown>, key: string): string {
   const value = input[key];
   return typeof value === "string" ? value.trim() : "";
@@ -601,9 +742,14 @@ function writeBlockReason(input: Record<string, unknown>, trusted: TrustedToolSo
       ? "the `xd://` target or its JSON payload is not a valid guarded device call"
       : "normal file/database/archive writes are direct implementation";
   }
-  // The host re-emits `tool_call` for the inner roadmap/ADR dispatch, where provenance is checked again.
+  // The host re-emits `tool_call` for the inner roadmap/ADR/AFT dispatch, where provenance (and, for AFT, projection) is checked again.
   const family = trustedToolFamily(nested.toolName);
   if (family) return trusted[family] ? undefined : unauthenticatedTool(family, nested.toolName);
+  if (AFT_OBSERVATION_TOOLS[nested.toolName] === true) {
+    if (nested.documentation) return undefined;
+    if (!nested.input) return `\`xd://${nested.toolName}\` requires a JSON object before it can be safety-classified`;
+    return executionBlockReason(nested.toolName, nested.input, trusted);
+  }
   if (SAFE_XDEV_TOOLS[nested.toolName] !== true) {
     return `\`xd://${nested.toolName}\` is not an approved orchestration or observation device`;
   }
@@ -619,6 +765,8 @@ function writeBlockReason(input: Record<string, unknown>, trusted: TrustedToolSo
 export interface TrustedToolSources {
   roadmap?: string;
   adr?: string;
+  /** The confirmed AFT binding for this call, if any AFT-relevant tool name was involved; `undefined` means no answered handshake. */
+  aft?: AftBinding;
 }
 
 /** The handshake-authenticated plugin family a tool name belongs to, if any. */
@@ -643,6 +791,11 @@ export function executionBlockReason(toolName: string, input: unknown, trusted: 
   if (family) return trusted[family] ? undefined : unauthenticatedTool(family, toolName);
   if (ALLOWED_TOOLS[toolName] === true || MAGIC_CONTEXT_TOOLS[toolName] === true) return undefined;
   const args = record(input) ?? {};
+  if (AFT_OBSERVATION_TOOLS[toolName] === true) {
+    const opDetail = aftObservationBlockReason(toolName, args);
+    if (opDetail) return opDetail;
+    return aftBoundTool(trusted, toolName, "observation") ? undefined : unauthenticatedAftTool(toolName);
+  }
   switch (toolName) {
     case "read":
       return readBlockReason(args);
@@ -675,6 +828,22 @@ export function executionToolSourceBlockReason(
     if (!verified) return unauthenticatedTool(family, toolName);
     if (source === "extension" && toolSourcePath === verified) return undefined;
     return `\`${toolName}\` is not from the verified ${family} runtime: it resolves to ${source ? `a ${source} tool` : "an unregistered tool"}${toolSourcePath ? ` at ${toolSourcePath}` : ""}, but the ${family} handshake names ${verified}`;
+  }
+  const fallthroughCapability = AFT_FALLTHROUGH_TOOLS[toolName];
+  if (fallthroughCapability !== undefined || AFT_OBSERVATION_TOOLS[toolName] === true) {
+    const capability = fallthroughCapability ?? "observation";
+    const tool = aftBoundTool(trusted, toolName, capability);
+    if (tool && source === "extension" && toolSourcePath === tool.sourcePath) return undefined;
+    // An unmatched extension source is decided here, never falling through to a generic allowance below.
+    if (source === "extension") {
+      return `\`${toolName}\` is not from the verified AFT runtime: it resolves to an extension tool${toolSourcePath ? ` at ${toolSourcePath}` : ""}, but no AFT binding in this session registers \`${toolName}\` with the \`${capability}\` capability there`;
+    }
+    // `AFT_OBSERVATION_TOOLS`-only names (no `fallthroughCapability`) have no legitimate builtin/MCP form, so a
+    // non-extension source is decided here too; `AFT_FALLTHROUGH_TOOLS` names (`read`, `grep`, `write`) fall through
+    // to their native builtin check below, unaffected by AFT.
+    if (fallthroughCapability === undefined) {
+      return `\`${toolName}\` resolves to ${source ? `a ${source} tool` : "an unregistered tool"}, not a trusted native/plugin tool`;
+    }
   }
   if (PLUGIN_OWNED_TOOLS[toolName] === true) {
     return trustedPrometheusTool ? undefined : `\`${toolName}\` is not the plugin-owned ${toolName} tool`;

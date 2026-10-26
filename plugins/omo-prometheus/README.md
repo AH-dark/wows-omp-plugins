@@ -201,6 +201,7 @@ User settings merge with project overrides. Settings are read at session start, 
   Starting a stage during planning only binds it, because Plan Mode cannot commit; Atlas starts the stage and commits that start before its first task, and refuses to dispatch until it has.
 - `adr`: Atlas may use the ADR tools, with or without `roadmap`. ADR acceptance, rejection and supersession are Atlas's own `adr_manage` steps, never a child's; a stage with proposed ADRs cannot close until they are disposed of.
 - [Magic Context](https://github.com/cortexkit/magic-context): its `ctx_*` tools stay available to Atlas.
+- [AFT](https://github.com/cortexkit/aft): builds implementing interoperability binding v1 can keep their same-name tools. Atlas admits the verified AFT read/grep and observation tools, plus `write` for native coordination/device URLs only. File writes, shell commands and modifying operations remain delegated. Older AFT builds without this binding are refused rather than trusted by name; update AFT and restart the session. See the [contract](REFERENCE.md#aft-contract).
 
 ## Without the terminal UI
 

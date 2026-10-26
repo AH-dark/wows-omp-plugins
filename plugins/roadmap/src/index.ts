@@ -1,12 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 import { ADR_INSTALL_HINT, AdrConnection } from "#src/adr.ts";
+import { AftContract, isExtensionSourced } from "#src/aft-contract.ts";
 import { requestPlans } from "#src/atlas.ts";
 import { registerCommands } from "#src/commands.ts";
 import { loadAll, loadRepo } from "#src/documents.ts";
 import { discoverRepo } from "#src/git.ts";
 import { renderCloseReminder, renderInjection } from "#src/handoff.ts";
-import { interceptionReason } from "#src/interception.ts";
+import { type AftIntegration, interceptionReason } from "#src/interception.ts";
 import { PluginStatePublisher } from "#src/plugin-state.ts";
 import { registerPrometheusContract } from "#src/prometheus.ts";
 import { RoadmapSession, type UiFactory } from "#src/ses.ts";
@@ -26,6 +27,12 @@ export function __setUiFactory(factory?: UiFactory): void {
 
 export default function roadmap(pi: ExtensionAPI): void {
   const ses = new RoadmapSession(pi);
+  // Standalone AFT v1 binding: the roadmap plugin's own exact-source-verified AFT projections, independent of adr/omo-prometheus.
+  const aft = new AftContract(pi.events, () => pi.getAllTools());
+  const aftIntegration = (sessionId: string): AftIntegration => ({
+    project: (toolName, input, cwd) => aft.project(sessionId, toolName, input, cwd),
+    isExtensionSourced: (toolName) => isExtensionSourced(() => pi.getAllTools(), toolName),
+  });
   const uiMenu = uiMenuReader(pi.logger);
   const uiFor: UiFactory = (ctx) => (testUiFactory ?? ((host) => createTuiUi(host, pi, uiMenu)))(ctx);
   let warned = false;
@@ -130,10 +137,11 @@ export default function roadmap(pi: ExtensionAPI): void {
   });
   pi.on("session_branch", rebuild);
   pi.on("session_tree", rebuild);
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     offering?.abort();
     offering = undefined;
     adr.release();
+    aft.forget(ctx.sessionManager.getSessionId());
     await publishing;
     await publisher.flush();
   });
@@ -151,7 +159,12 @@ export default function roadmap(pi: ExtensionAPI): void {
           };
         }
       }
-      const reason = await interceptionReason(event.toolName, { ...event.input }, ctx.cwd);
+      const reason = await interceptionReason(
+        event.toolName,
+        { ...event.input },
+        ctx.cwd,
+        aftIntegration(ctx.sessionManager.getSessionId()),
+      );
       if (reason) return { block: true, reason };
     } catch (error) {
       return {

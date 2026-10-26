@@ -121,6 +121,7 @@ omp plugin config set wows-omp-plugin-adr uiMenu inline
 
 - **roadmap**：roadmap 插件依赖本插件。它通过本插件的服务契约读取 ADR、把 ADR 关联到阶段；`docs/adr/` 不存在或为空时，其 `/init-project` 会初始化它。设置或更改阶段关联需要已加载的 roadmap 插件，且阶段必须存在；清除关联不需要。
 - **omo-prometheus**：执行计划时，Atlas 会与路线图工具一同放行 `adr_*` 工具。
+- **[AFT](https://github.com/cortexkit/aft)**：提供互操作绑定 v1 时，文档保护使用 AFT 自己解析的变更目标，包括批量/hashline 编辑和移动目标路径。受管 ADR 之外的普通编辑仍然可用。管理 ADR 期间，未经来源验证的 AFT 专用修改工具或无法判断的变更会被拒绝；请更新 AFT，或使用 ADR 工具。见[编辑保护](REFERENCE.zh.md#编辑保护)。
 
 ## 不使用终端界面时
 

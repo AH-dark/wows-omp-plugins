@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import type { AftProjection } from "#src/aft-contract.ts";
 import { loadRepo } from "#src/documents.ts";
 import { discoverRepo, type GitRepo } from "#src/git.ts";
 import {
@@ -11,6 +12,32 @@ import {
   resolveToCwd,
   unwrapHashlineHeaderPath,
 } from "#src/host.ts";
+
+/** Resolves a bound AFT tool's projection for one call; undefined when toolName is not AFT-bound this session. */
+export type AftProjector = (toolName: string, input: Record<string, unknown>, cwd: string) => Promise<AftProjection | undefined>;
+
+export interface AftIntegration {
+  /** Exact-source-bound AFT projection for this call; undefined when toolName is not AFT-bound this session. */
+  project: AftProjector;
+  /** Whether toolName's live host sourceInfo is `extension`, independent of AFT binding verification. */
+  isExtensionSourced(toolName: string): boolean;
+}
+
+const NATIVE_MUTATING_TOOLS = ["write", "edit", "apply_patch", "ast_edit", "lsp", "bash"];
+
+/** AFT tool names with no native OMP equivalent; a managed repo cannot trust these unverified, even unbound. */
+const AFT_ONLY_MUTATION_TOOLS = ["aft_move", "aft_delete", "aft_import", "aft_safety", "ast_grep_replace"];
+
+/** AFT-projected mutation/execution targets, filtered and cwd-resolved the same way native candidates are. */
+function projectedCandidates(projection: AftProjection, cwd: string): string[] {
+  return [
+    ...new Set(
+      projection.paths
+        .filter((path) => path && (!/^@?[a-z][a-z\d+.-]*:\/\//i.test(path) || /^@?file:\/\//i.test(path)))
+        .map((path) => resolveToCwd(path, cwd)),
+    ),
+  ];
+}
 
 const EDIT_MODES = ["hashline", "replace", "patch", "apply_patch", "sloppy"] as const;
 
@@ -178,15 +205,61 @@ function managedFileIdentities(repoRoot: string): Set<string> {
   return files;
 }
 
-export async function interceptionReason(toolName: string, input: Record<string, unknown>, cwd: string): Promise<string | undefined> {
-  if (!["write", "edit", "apply_patch", "ast_edit", "lsp", "bash"].includes(toolName)) return;
-  const candidates = await managedTargets(toolName, input, undefined, cwd);
+/**
+ * Blocks native mutations of docs/roadmap/** once a roadmap is initialized there.
+ * `aft`, when given, lets an exact-source-bound AFT tool report its own projected mutation scope instead of
+ * native parsing; native/no-AFT tool calls keep exactly their prior behavior.
+ */
+export async function interceptionReason(
+  toolName: string,
+  input: Record<string, unknown>,
+  cwd: string,
+  aft?: AftIntegration,
+): Promise<string | undefined> {
+  const reason = "Managed Roadmap files must change through roadmap_stage or roadmap_todo (roadmap_check with fix for generated indexes).";
+  async function managedHere(): Promise<GitRepo | undefined> {
+    const currentRepo = targetRepo(cwd);
+    if (currentRepo && (await loadRepo(currentRepo.repoRoot))) return currentRepo;
+  }
+  const projection = aft ? await aft.project(toolName, input, cwd) : undefined;
+  if (projection?.kind === "observation") return;
+  if (projection?.kind === "unknown") {
+    if (!(await managedHere())) return;
+    return `This AFT tool's mutation scope could not be determined while a roadmap is initialized, so it is refused. ${reason}`;
+  }
+  let candidates: string[];
+  let broad: boolean;
+  if (projection && projection.kind === "execution") {
+    // Execution never trusts empty/absent paths as safe: AFT's own `bash`/`powershell` projections carry no paths
+    // at all (no static command-text parsing on AFT's side), so the native shell projection still runs for `bash`,
+    // the only execution tool this plugin can statically inspect; its own backup/undo capability is not a safety
+    // substitute. A tool this plugin cannot inspect at all fails closed while a roadmap is initialized, like `unknown`.
+    const inspectable = toolName === "bash";
+    const commandInput = typeof input.workdir === "string" ? { ...input, cwd: input.workdir } : input;
+    const native = inspectable ? await managedTargets("bash", commandInput, undefined, cwd) : [];
+    candidates = [...new Set([...projectedCandidates(projection, cwd), ...native])];
+    broad = inspectable || projection.broad;
+    if (!candidates.length) {
+      if (!inspectable && (await managedHere())) {
+        return `This AFT tool's execution scope could not be determined while a roadmap is initialized, so it is refused. ${reason}`;
+      }
+      return;
+    }
+  } else if (projection && projection.kind !== "native") {
+    candidates = projectedCandidates(projection, cwd);
+    broad = projection.broad;
+  } else {
+    if (!projection && AFT_ONLY_MUTATION_TOOLS.includes(toolName) && aft?.isExtensionSourced(toolName) && (await managedHere())) {
+      return `${toolName} looks like an AFT tool, but its v1 binding to this session is missing or does not match this call's extension source, so its mutation scope cannot be verified while a roadmap is initialized. Update or reinstall the AFT extension, or use roadmap_stage/roadmap_todo instead.`;
+    }
+    if (!NATIVE_MUTATING_TOOLS.includes(toolName)) return;
+    candidates = await managedTargets(toolName, input, undefined, cwd);
+    broad = toolName !== "write" && toolName !== "edit" && toolName !== "apply_patch";
+  }
   if (!candidates.length) return;
   const currentRepo = targetRepo(cwd);
   const marked = new Map<string, boolean>();
   const identities = new Map<string, Set<string>>();
-  const broad = toolName !== "write" && toolName !== "edit" && toolName !== "apply_patch";
-  const reason = "Managed Roadmap files must change through roadmap_stage or roadmap_todo (roadmap_check with fix for generated indexes).";
   for (const candidate of candidates) {
     // Check both spellings: a symlink inside a managed directory must not grant an escape.
     for (const path of new Set([candidate, resolvedPath(candidate)])) {

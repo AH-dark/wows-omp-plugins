@@ -161,6 +161,8 @@ omp plugin config set wows-omp-plugin-roadmap uiMenu inline
 
 执行期间 Atlas 可以使用路线图工具。计划完成后，会话会收到提醒去评估是否关闭阶段，内容包括作为证据候选的最终关口结果、该阶段所有计划的覆盖情况、未完成和未声明覆盖的计划、漂移，以及尚未分类的范围外发现（Atlas 会把它们登记为路线图 TODO）。PR/ship 计划在交付完成后才算完成，提醒会显示其交付模式和摘要。不含这些字段的旧完成事件和旧批准记录仍然有效。阶段永远不会被自动关闭。没有 omo-prometheus 时，roadmap 不显示任何计划信息。
 
+[AFT](https://github.com/cortexkit/aft) 提供互操作绑定 v1 时，编辑保护使用 AFT 的真实变更目标，包括批量/hashline 编辑、移动目标和 AST 搜索范围。`docs/roadmap/` 之外的普通编辑仍然可用。已初始化路线图时，未经来源验证的 AFT 专用修改工具和无法判断的变更会被拒绝；请更新 AFT，或使用路线图工具。见[编辑保护](REFERENCE.zh.md#编辑保护)。
+
 ## 不使用终端界面时
 
 | 宿主 | 行为 |

@@ -1,9 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
+import { AftContract, isExtensionSourced } from "#src/aft-contract.ts";
 import { registerCommands } from "#src/commands.ts";
 import { loadInitialized } from "#src/documents.ts";
 import { discoverRepo } from "#src/git.ts";
-import { interceptionReason } from "#src/interception.ts";
+import { type AftIntegration, interceptionReason } from "#src/interception.ts";
 import { PluginStatePublisher } from "#src/plugin-state.ts";
 import { registerService } from "#src/service.ts";
 import { AdrSession, type UiFactory } from "#src/ses.ts";
@@ -21,6 +22,12 @@ export function __setUiFactory(factory?: UiFactory): void {
 
 export default function adr(pi: ExtensionAPI): void {
   const ses = new AdrSession();
+  // Standalone AFT v1 binding: the adr plugin's own exact-source-verified AFT projections, independent of roadmap/omo-prometheus.
+  const aft = new AftContract(pi.events, () => pi.getAllTools());
+  const aftIntegration = (sessionId: string): AftIntegration => ({
+    project: (toolName, input, cwd) => aft.project(sessionId, toolName, input, cwd),
+    isExtensionSourced: (toolName) => isExtensionSourced(() => pi.getAllTools(), toolName),
+  });
   const uiFor: UiFactory = async (ctx) => {
     if (testUiFactory) return testUiFactory(ctx);
     // Only the terminal UI can show the fullscreen console, so other clients never read the setting.
@@ -66,14 +73,20 @@ export default function adr(pi: ExtensionAPI): void {
   pi.on("session_switch", rebuild);
   pi.on("session_branch", rebuild);
   pi.on("session_tree", rebuild);
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (_event, ctx) => {
+    aft.forget(ctx.sessionManager.getSessionId());
     await publishing;
     await publisher.flush();
   });
 
   pi.on("tool_call", async (event, ctx) => {
     try {
-      const reason = await interceptionReason(event.toolName, { ...event.input }, ctx.cwd);
+      const reason = await interceptionReason(
+        event.toolName,
+        { ...event.input },
+        ctx.cwd,
+        aftIntegration(ctx.sessionManager.getSessionId()),
+      );
       if (reason) return { block: true, reason };
     } catch (error) {
       return {

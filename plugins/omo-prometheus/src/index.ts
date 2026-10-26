@@ -14,6 +14,7 @@ import { TASK_SUBAGENT_LIFECYCLE_CHANNEL } from "@oh-my-pi/pi-coding-agent/task/
 import { isTodoPhase, USER_TODO_EDIT_CUSTOM_TYPE } from "@oh-my-pi/pi-coding-agent/tools/todo";
 
 import { AdrContract } from "./adr-contract.ts";
+import { AftContract } from "./aft-contract.ts";
 import { parseLegalAgentNames } from "./agents.ts";
 import { ATLAS_ASSET, loadPromptAsset, loadRequiredPromptAssets, SKILL_ASSET } from "./assets.ts";
 import { runAtlasGit } from "./atlas-git.ts";
@@ -77,6 +78,7 @@ import { forceStructuredResults, restoreStructuredResults } from "./structured-r
 import {
   ATLAS_USAGE,
   type AtlasCompletionPlan,
+  aftProjectionBlockReason,
   assignedRowIds,
   atlasArgumentCompletions,
   BLOCKED_TOOL_NOTICE,
@@ -88,10 +90,12 @@ import {
   executionBlockReason,
   executionToolSourceBlockReason,
   inlinesApprovedPlan,
+  isAftToolName,
   isApprovedPlanHandoff,
   isPlanReviewDispatch,
   isPrometheusOptInConsent,
   isPrometheusOptInQuestion,
+  needsAftProjection,
   nestedXdevToolCall,
   OPT_IN_ADDENDUM,
   PLANNING_PREAMBLE,
@@ -109,6 +113,7 @@ import {
   researchSpawnBlockReason,
   type TrustedToolSources,
   taskSpawnBlockReason,
+  record as toolArgsRecord,
   trustedToolFamily,
 } from "./workflow.ts";
 
@@ -261,6 +266,7 @@ export default function prometheus(pi: ExtensionAPI): void {
   const herdrDag = new HerdrDagContract(pi.events);
   const roadmap = new RoadmapContract(pi.events);
   const adr = new AdrContract(pi.events);
+  const aft = new AftContract(pi.events);
   const WIDGET_KEY = "atlas";
   let stateWarned = false;
   const statePublisher = new PluginStatePublisher("omo-prometheus", (error) => {
@@ -2643,9 +2649,18 @@ export default function prometheus(pi: ExtensionAPI): void {
       if (family === "roadmap") trusted.roadmap = roadmap.binding(ctx.sessionManager.getSessionId())?.toolSourcePath;
       else if (family === "adr") trusted.adr = adr.binding(ctx.sessionManager.getSessionId())?.toolSourcePath;
     }
+    if (isAftToolName(event.toolName) || (nested && isAftToolName(nested.toolName))) {
+      trusted.aft = aft.binding(ctx.sessionManager.getSessionId());
+    }
     let detail = executionBlockReason(event.toolName, event.input, trusted);
     if (!detail) detail = provenanceBlockReason(event.toolName, trusted);
     if (!detail && nested) detail = provenanceBlockReason(nested.toolName, trusted);
+    // `write` (internal-URL delegation) and the operation-gated AFT tools never trust their static capability alone: once
+    // source and capability are verified above, AFT's own live projection must also agree for this exact call. A nested
+    // AFT device call is re-validated here again by the host's re-emitted `tool_call` for the inner dispatch.
+    if (!detail && needsAftProjection(event.toolName) && toolProvenance(event.toolName)?.source === "extension") {
+      detail = await aftProjectionBlockReason(trusted, event.toolName, toolArgsRecord(event.input) ?? {}, ctx.cwd);
+    }
     // Progress guard: the HUD only redraws on a model-made todo call, and a finished child must be recorded before Atlas moves on.
     if (!detail && (event.toolName === "task" || event.toolName === "wait" || event.toolName === RELEASE_TOOL)) {
       const sessionId = ctx.sessionManager.getSessionId();
@@ -2989,6 +3004,7 @@ export default function prometheus(pi: ExtensionAPI): void {
     herdrDag.forget(sessionId);
     roadmap.forget(sessionId);
     adr.forget(sessionId);
+    aft.forget(sessionId);
     authorizedActivationCalls.clear();
   });
 }

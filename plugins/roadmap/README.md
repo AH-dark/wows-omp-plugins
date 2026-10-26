@@ -161,6 +161,8 @@ With `omo-prometheus`, a plan proposed while a stage is bound remembers that sta
 
 During execution Atlas may use the roadmap tools. When a plan completes, the session is reminded to evaluate the stage close, with the final gate results as evidence candidates, coverage across every plan for the stage, unfinished and undeclared plans, drift and untriaged out-of-scope findings, which Atlas files as roadmap TODOs. PR and ship plans complete only after delivery, and the reminder shows their delivery mode and summary. Older completions and approvals without these fields still work. The stage never closes automatically. Without omo-prometheus, roadmap shows no plan information.
 
+With [AFT](https://github.com/cortexkit/aft) interoperability binding v1, edit protection uses AFT's real mutation targets, including batch/hashline edits, move destinations and broad AST scopes. Ordinary edits outside `docs/roadmap/` still work. While a roadmap is initialized, unverified AFT-only mutation tools and uninspectable effects are refused; update AFT or use the roadmap tools. See [edit protection](REFERENCE.md#edit-protection).
+
 ## Without the terminal UI
 
 | Host | Behavior |

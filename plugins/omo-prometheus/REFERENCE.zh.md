@@ -45,6 +45,16 @@ Prometheus 计划的两个批准选项都会交给 Atlas。“Approve and execut
 | [roadmap](../roadmap/README.zh.md) | `roadmap_*`，可直接调用或以 `write xd://roadmap_*` 调用，仅限来自经路线图绑定握手验证过的扩展源路径（见[路线图契约](#路线图契约)） |
 | [adr](../adr/README.zh.md) | `adr_*`，可直接调用或以 `write xd://adr_*` 调用，仅限来自经 ADR 绑定握手验证过的扩展源路径（见[ADR 契约](#adr-契约)）；与 `roadmap` 无关 |
 
+## AFT 契约
+
+AFT 是可选集成。实现互操作绑定 v1 的构建可以保留同名工具；文件路径模式和工具描述均不授予信任。Prometheus 发送 `aft:binding-request {v:1, sessionId, requestId}`，只接受同步、版本及请求/会话均匹配的 `aft:binding` 回复，内容包含 `tools` 和 `project` 函数。每个工具项提供唯一 `name`、绝对 `sourcePath`，以及 `observation`、`mutation`、`execution`、`native-url` 中的能力。每次调用的实际来源必须是扩展，且实时 `sourceInfo.path` 与该项精确匹配。确认的绑定仅在会话内缓存，未收到回复时下次重试，会话关闭时清除。这是已加载扩展间的协作，不是防御进程内恶意代码的沙箱。
+
+显式允许的观察工具为 `aft_outline`、`aft_zoom`、`aft_search`、`aft_inspect`、`aft_callgraph`、`aft_conflicts`、`ast_grep_search`，以及遵循原规则的已绑定 AFT `read`/`grep`。`aft_safety` 只允许 `list`/`history`，`ast_grep_replace` 只允许 `dryRun: true`；这些混合操作工具还需要实时投影确认 `observation`。创建检查点、恢复、撤销、清除历史、导入修改、AST 实际改写，以及 shell/进程控制仍然禁止。
+
+AFT `write` 另外需要 `native-url` 能力和实时 `native` 投影，且仍须通过原有 URL/载荷分类：只允许同伴消息、不带 content 的进程取消，以及已放行的设备调用。内层设备的来源单独检查。AFT 已经会把这些 URL 委托给宿主；`invokeTool` 本身不会产生第二次外层 `write` 钩子，因此不能跳过外层检查。原生规划及其提案语法不变。
+
+`project(toolName, input, cwd)` 返回 `{kind, paths, broad}` 的 Promise：`kind` 为 `observation`、`mutation`、`execution`、`native` 或 `unknown`；`paths` 是真实目标/范围；`broad` 表示包含后代路径。投影不得修改工作区文件或执行模型命令，可以使用只读引擎预检（包括启动桥接进程）。投影抛错、格式错误或与允许操作不一致时拒绝调用。缺少绑定的旧版 AFT 不会因覆盖了原生工具名而获得权限。
+
 ## 任务派发
 
 Atlas 父会话的每次 `task` 调用，要么是绑定调用，要么是调研调用：

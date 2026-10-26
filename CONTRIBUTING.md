@@ -24,6 +24,17 @@ bun run test           # test suite
 
 To try your working tree in OMP, run `bun run dev:plugins [name…]` and restart the session. It installs the plugins from a local copy at project scope, so other directories keep the released versions. `bun run dev:plugins --remove` undoes it.
 
+### AFT interoperability smoke
+
+Build the AFT bridge and Pi extension in an AFT checkout, then run the real SDK integration with that checkout's built extension and native binary:
+
+```bash
+AFT_BINARY_PATH=/path/to/aft/target/debug/aft \
+  bun run src/smoke-aft.ts /path/to/aft/packages/pi-plugin/dist/index.js
+```
+
+The runner isolates HOME/config/session storage, disables semantic model downloads, and exercises both extension load orders with default and hashline edit modes. It checks proposal transport, ordinary edits, managed targets and rename destinations, observation/device calls, peer delivery, content-less cancellation and Atlas refusals. It validates the native proposal through the SDK review callback and imports an approved bundle for execution; it does not click the interactive approval UI or call a model provider. An optional final argument selects one of `forward:fuzzy`, `reverse:fuzzy`, `forward:hashline`, `reverse:hashline` for diagnosis. The default runs all four.
+
 ## Documentation
 
 Each plugin's `README.md` covers installing, using and configuring it. Snapshot schemas, event contracts, storage formats and other internals go in a `REFERENCE.md` next to it. Both have a `.zh.md` counterpart with the same sections; the English file is the source.

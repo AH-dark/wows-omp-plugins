@@ -132,6 +132,14 @@ Considered options, titles and participant names are single-line and cannot cont
 
 ## Edit protection
 
+### AFT interoperability
+
+AFT builds implementing interoperability binding v1 advertise actually registered tools, absolute source paths, capabilities and a `project(toolName, input, cwd)` function through synchronous `aft:binding-request` / `aft:binding` events. Only matching version, session and request replies are accepted. Each use rechecks the live extension source against the advertised path exactly, without path regexes. Shutdown clears the cache; missed responses retry.
+
+For a bound tool, AFT uses its own argument normalizers and read-only engine preflight to return `{kind, paths, broad}`. Targets include both ends of moves, multi-file hashline changes and AST scopes, resolved against the current call's `cwd`. Mutation targets pass through the existing symlink, hardlink and ancestor-directory safeguards; observations proceed. A `bash` execution projection does not replace native command inspection, and uses AFT's `workdir`. While managed documents exist, unenumerable scopes, uninspectable execution, malformed projections and AFT-only mutation tools lacking a verified binding are refused. Native tools and sessions without AFT retain their behavior. This remains best-effort extension protection, not a sandbox.
+
+### Native mutation protection
+
 Once `docs/adr/` is managed, a tool-call hook blocks native mutations of `docs/adr/**` in main and subagent sessions, with guidance to use `adr_manage`. It finds the target's git work tree, checks lexical and resolved paths (including dangling symlink destinations) and compares device and inode against multiply linked managed files, so a hardlink alias cannot change a managed file.
 
 | Surface | Coverage |

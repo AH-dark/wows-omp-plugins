@@ -121,6 +121,7 @@ The setting applies only in the terminal UI and is read each time an `/adr` comm
 
 - **roadmap**: the roadmap plugin requires this plugin. It reads ADRs and links them to stages through this plugin's service contract, and its `/init-project` initializes `docs/adr/` when the directory is absent or empty. Setting or changing a stage link requires the loaded roadmap plugin and an existing stage; clearing a link does not.
 - **omo-prometheus**: Atlas admits the `adr_*` tools during plan execution, alongside the roadmap tools.
+- **[AFT](https://github.com/cortexkit/aft)**: with interoperability binding v1, document protection uses AFT's own mutation targets, including batch/hashline edits and move destinations. Ordinary edits outside managed ADRs still work. Unverified AFT-only mutation tools or uninspectable effects are refused while ADRs are managed; update AFT or use the ADR tools. See [edit protection](REFERENCE.md#edit-protection).
 
 ## Without the terminal UI
 

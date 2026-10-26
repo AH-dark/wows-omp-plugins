@@ -103,6 +103,14 @@ The close dialog authorizes closing only the round and file snapshot reviewed be
 
 ## Edit protection
 
+### AFT interoperability
+
+AFT builds implementing interoperability binding v1 advertise actually registered tools, absolute source paths, capabilities and a `project(toolName, input, cwd)` function through synchronous `aft:binding-request` / `aft:binding` events. Only matching version, session and request replies are accepted. Each use rechecks the live extension source against the advertised path exactly, without path regexes. Shutdown clears the cache; missed responses retry.
+
+For a bound tool, AFT uses its own argument normalizers and read-only engine preflight to return `{kind, paths, broad}`. Targets include both ends of moves, multi-file hashline changes and AST scopes, resolved against the current call's `cwd`. Mutation targets pass through the existing symlink, hardlink and ancestor-directory safeguards; observations proceed. A `bash` execution projection does not replace native command inspection, and uses AFT's `workdir`. While managed documents exist, unenumerable scopes, uninspectable execution, malformed projections and AFT-only mutation tools lacking a verified binding are refused. Native tools and sessions without AFT retain their behavior. This remains best-effort extension protection, not a sandbox.
+
+### Native mutation protection
+
 After initialization, a tool-call hook protects `docs/roadmap/**` in main and subagent sessions, whether or not the adr plugin is loaded; `docs/adr/**` is protected by the adr plugin. The hook finds the target's git work tree, checks lexical and resolved paths (including dangling symlink destinations) and blocks edits with guidance to use the roadmap tools. For existing file targets, it compares device and inode against multiply linked managed files in the session and target worktrees, so native `write` and `edit` cannot change a managed file through a hardlink alias, inside or outside the repository.
 
 Repositories without the initialization marker are unaffected. A validation, path-resolution or file-identity error in the hook refuses the call.

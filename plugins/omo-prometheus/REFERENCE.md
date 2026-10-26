@@ -45,6 +45,16 @@ Everything else is blocked, including `bash`, `eval`, `edit`, `ast_edit`, file w
 | [roadmap](../roadmap/README.md) | `roadmap_*`, called directly or as `write xd://roadmap_*`, only from the extension source path verified by the roadmap binding handshake (see [Roadmap contract](#roadmap-contract)) |
 | [adr](../adr/README.md) | `adr_*`, called directly or as `write xd://adr_*`, only from the extension source path verified by the ADR binding handshake (see [ADR contract](#adr-contract)); independent of `roadmap` |
 
+## AFT contract
+
+AFT is optional. Builds implementing interoperability binding v1 keep their same-name tools; no filesystem path pattern or tool description grants trust. Prometheus emits `aft:binding-request {v:1, sessionId, requestId}` and accepts a synchronous, correlated `aft:binding` response containing `tools` and a `project` function. Each tool entry has a unique `name`, an absolute `sourcePath`, and capabilities from `observation`, `mutation`, `execution`, `native-url`. A call must resolve to an extension whose live `sourceInfo.path` exactly matches that entry. Confirmed bindings are session-local; misses retry and shutdown forgets the binding. This is cooperation between loaded extensions, not a sandbox against malicious in-process code.
+
+The explicitly admitted observation tools are `aft_outline`, `aft_zoom`, `aft_search`, `aft_inspect`, `aft_callgraph`, `aft_conflicts`, and `ast_grep_search`, plus bound AFT `read`/`grep` under their existing rules. `aft_safety` admits only `list`/`history`; `ast_grep_replace` admits only `dryRun: true`. These mixed-operation calls also need the live projector to confirm `observation`. Checkpoint creation, restore, undo, purge, import changes, AST application and shell/process control remain blocked.
+
+An AFT `write` additionally needs `native-url` capability and a live `native` projection. It still passes the existing URL/payload classifier: peer messages, process cancellation without content, and admitted device calls only. Inner device provenance is checked independently. AFT already delegates these URLs to the host; `invokeTool` itself does not create a second outer `write` hook, so the outer check cannot be skipped. Native planning and its proposal grammar are unchanged.
+
+`project(toolName, input, cwd)` returns a promise of `{kind, paths, broad}`: `kind` is `observation`, `mutation`, `execution`, `native`, or `unknown`; `paths` contains the actual targets/scopes; `broad` marks descendant scope. The projector must not mutate workspace files or execute model commands. Read-only engine preflight is allowed, including bridge startup. A thrown, malformed or disagreeing projection refuses admission. An older AFT build without the binding does not gain permission by shadowing a native name.
+
 ## Task dispatch
 
 Every `task` call from the Atlas parent is either bound or research:

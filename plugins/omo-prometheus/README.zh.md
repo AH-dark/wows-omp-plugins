@@ -201,6 +201,7 @@ omp plugin config set wows-omp-plugin-omo-prometheus reviewLevel standard
   由于 Plan Mode 无法提交，规划期间开始阶段只会绑定它；Atlas 会在第一个任务之前开始该阶段并提交，完成之前拒绝派发任务。
 - `adr`：Atlas 可以使用 ADR 工具，与是否安装 `roadmap` 无关。ADR 的接受、拒绝和取代由 Atlas 通过 `adr_manage` 完成，子代理无权决定；阶段还有提议中的 ADR 时无法关闭，需要先处理这些 ADR。
 - [Magic Context](https://github.com/cortexkit/magic-context)：它的 `ctx_*` 工具在 Atlas 中保持可用。
+- [AFT](https://github.com/cortexkit/aft)：实现互操作绑定 v1 的构建可以保留同名工具。Atlas 放行经来源验证的 AFT read/grep 和观察工具，`write` 仅用于原生协调或设备 URL。文件写入、shell 命令和修改操作仍须委派。缺少绑定的旧版 AFT 会被拒绝，不会仅凭工具名获得信任；请更新 AFT 并重启会话。见[契约](REFERENCE.zh.md#aft-契约)。
 
 ## 不使用终端界面时
 

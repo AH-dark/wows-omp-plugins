@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -117,7 +117,7 @@ async function git(repoRoot: string, args: string[]): Promise<string> {
 }
 
 async function emptyRepo(): Promise<Repo> {
-  const repoRoot = await mkdtemp(join(tmpdir(), "roadmap-operations-"));
+  const repoRoot = await realpath(await mkdtemp(join(tmpdir(), "roadmap-operations-")));
   temporary.push(repoRoot);
   await git(repoRoot, ["init", "-q"]);
   const info = discoverRepo(repoRoot);

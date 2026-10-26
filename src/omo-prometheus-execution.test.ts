@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2252,7 +2252,7 @@ if (process.env[CHILD_ENV]) {
     ]) {
       // Each scenario runs in its own process with a private HOME, so scenarios share no state.
       test.concurrent(name, async () => {
-        const root = await mkdtemp(join(tmpdir(), "prometheus-execution-"));
+        const root = await realpath(await mkdtemp(join(tmpdir(), "prometheus-execution-")));
         try {
           const child = Bun.spawn([process.execPath, THIS_FILE], {
             env: {
